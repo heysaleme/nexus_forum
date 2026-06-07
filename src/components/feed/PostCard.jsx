@@ -25,24 +25,39 @@ export default function PostCard({ post, currentUser, onVote, onDeleteSuccess })
     const { toast } = useToast();
     const navigate = useNavigate();
     const { triggerAuthModal } = useAuth();
-    const [userVote, setUserVote] = useState(null);
+    const [userVote, setUserVote] = useState(post.user_vote ?? 0);
     const [score, setScore] = useState(post.score || 0);
     const [saved, setSaved] = useState(false);
     const [revealed, setRevealed] = useState(false);
-
     const handleVote = async (e, value) => {
         e.stopPropagation();
+
         if (!currentUser) {
-            triggerAuthModal("Для голосования необходимо войти в аккаунт или зарегистрироваться.");
+            triggerAuthModal(
+                "Для голосования необходимо войти в аккаунт или зарегистрироваться."
+            );
             return;
         }
-        const newVote = userVote === value ? null : value;
-        const delta = (newVote || 0) - (userVote || 0);
-        // Update UI immediately, no reload
+
+        const oldVote = userVote || 0;
+        const newVote = oldVote === value ? 0 : value;
+        const delta = newVote - oldVote;
+
         setUserVote(newVote);
         setScore(prev => prev + delta);
-        if (newVote !== null) {
-            nexusApi.entities.Vote.create({ user_id: currentUser.id, target_id: post.id, target_type: 'post', value });
+
+        try {
+            await nexusApi.entities.Vote.create({
+                user_id: currentUser.id,
+                target_id: post.id,
+                target_type: "post",
+                value: newVote
+            });
+        } catch (err) {
+            console.error(err);
+
+            setUserVote(oldVote);
+            setScore(prev => prev - delta);
         }
     };
 
@@ -186,20 +201,26 @@ export default function PostCard({ post, currentUser, onVote, onDeleteSuccess })
                     )}
 
                     {/* Poll preview in card */}
-                    {post.type === 'poll' && post.poll_options?.length > 0 && (
-                        <div className="px-5 mt-2 mb-1 space-y-1.5">
-                            {post.poll_options.slice(0, 3).map((opt, i) => (
-                                <div key={i} className="flex items-center gap-2 bg-muted/30 border border-border/40 rounded-lg px-3 py-1.5">
-                                    <div className="w-3 h-3 rounded-full border-2 border-primary/50 flex-shrink-0" />
-                                    <span className="text-xs font-medium">{opt.text}</span>
-                                    <span className="text-xs text-muted-foreground ml-auto">{opt.votes || 0}</span>
-                                </div>
-                            ))}
-                            {post.poll_options.length > 3 && (
-                                <p className="text-xs text-muted-foreground pl-1">+{post.poll_options.length - 3} вариантов</p>
-                            )}
-                        </div>
-                    )}
+                    {post.type === 'poll' &&
+                        Array.isArray(post.poll_options) &&
+                        post.poll_options.length > 0 && (
+                            <div className="px-5 mt-2 mb-1 space-y-1.5">
+                                {post.poll_options.slice(0, 3).map((opt, i) => (
+                                    <div key={i} className="flex items-center gap-2 bg-muted/30 border border-border/40 rounded-lg px-3 py-1.5">
+                                        <div className="w-3 h-3 rounded-full border-2 border-primary/50 flex-shrink-0" />
+                                        <span className="text-xs font-medium">
+                                            {typeof opt === 'string' ? opt : opt.text}
+                                        </span>
+                                        <span className="text-xs text-muted-foreground ml-auto">
+                                            {typeof opt === 'object' ? (opt.votes || 0) : 0}
+                                        </span>
+                                    </div>
+                                ))}
+                                {post.poll_options.length > 3 && (
+                                    <p className="text-xs text-muted-foreground pl-1">+{post.poll_options.length - 3} вариантов</p>
+                                )}
+                            </div>
+                        )}
                 </>
             )}
 

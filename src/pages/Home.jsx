@@ -26,8 +26,10 @@ const CATEGORIES = [
 
 export default function Home() {
     const { user } = useAuth();
+
     const [posts, setPosts] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(true)
+
     const [sort, setSort] = useState('hot');
     const [communities, setCommunities] = useState([]);
     const [allCommunities, setAllCommunities] = useState([]);

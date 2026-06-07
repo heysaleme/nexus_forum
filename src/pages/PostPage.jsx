@@ -70,7 +70,7 @@ function PollDisplay({ post, currentUser, onVote }) {
 function LinkPreview({ url }) {
     if (!url) return null;
     let display = url;
-    try { display = new URL(url).hostname; } catch {}
+    try { display = new URL(url).hostname; } catch { }
     return (
         <a
             href={url}
@@ -102,16 +102,31 @@ function CommentItem({ comment, depth = 0, currentUser, postId, onReload, canDel
     const [editText, setEditText] = useState(comment.content || '');
     const [reportOpen, setReportOpen] = useState(false);
 
-    const handleVote = (value) => {
+    const handleVote = async (value) => {
         if (!currentUser) {
-            triggerAuthModal("Для голосования необходимо войти в аккаунт или зарегистрироваться.");
+            triggerAuthModal("Для голосования необходимо войти.");
             return;
         }
-        const newVote = userVote === value ? null : value;
+
+        const oldVote = userVote;
+        const newVote = userVote === value ? 0 : value;
+        const delta = newVote - oldVote;
+
         setUserVote(newVote);
-        setScore(prev => prev + ((newVote || 0) - (userVote || 0)));
-        if (newVote !== null) {
-            nexusApi.entities.Vote.create({ user_id: currentUser.id, target_id: comment.id, target_type: 'comment', value });
+        setScore(prev => prev + delta);
+
+        try {
+            await nexusApi.entities.Vote.create({
+                user_id: currentUser.id,
+                target_id: comment.id,
+                target_type: 'comment',
+                value: newVote
+            });
+        } catch (err) {
+            console.error(err);
+
+            setUserVote(oldVote);
+            setScore(prev => prev - delta);
         }
     };
 
@@ -262,6 +277,10 @@ export default function PostPage() {
     const [memberRole, setMemberRole] = useState(null);
     const [reportOpen, setReportOpen] = useState(false);
 
+    useEffect(() => {
+        console.log("STATE USER_VOTE =", userVote);
+    }, [userVote]);
+
     useEffect(() => { loadPost(); }, [id, user]);
 
     const loadPost = async () => {
@@ -271,8 +290,15 @@ export default function PostPage() {
             nexusApi.entities.Comment.filter({ post_id: id }, 'created_date'),
         ]);
         if (posts[0]) {
+            console.log("POST USER_VOTE:", posts[0].user_vote);
             setPost(posts[0]);
             setScore(posts[0].score || 0);
+
+            console.log("LOAD POST USER_VOTE =", posts[0].user_vote);
+
+            setUserVote(Number(posts[0].user_vote) || 0);
+            console.log("TYPE:", typeof posts[0].user_vote);
+            console.log("VALUE:", posts[0].user_vote);
             nexusApi.entities.Post.update(posts[0].id, { views: (posts[0].views || 0) + 1 });
 
             if (user) {
@@ -288,19 +314,32 @@ export default function PostPage() {
         setLoading(false);
     };
 
-    const handleVote = (value) => {
+    const handleVote = async (value) => {
         if (!user) {
-            triggerAuthModal("Для голосования необходимо войти в аккаунт или зарегистрироваться.");
+            triggerAuthModal("Для голосования необходимо войти.");
             return;
         }
-        const newVote = userVote === value ? null : value;
-        const delta = (newVote || 0) - (userVote || 0);
+
+        const oldVote = userVote;
+        const newVote = userVote === value ? 0 : value;
+        const delta = newVote - oldVote;
+
         setUserVote(newVote);
         setScore(prev => prev + delta);
-        if (newVote !== null) {
-            nexusApi.entities.Vote.create({ user_id: user.id, target_id: post.id, target_type: 'post', value });
+
+        try {
+            await nexusApi.entities.Vote.create({
+                user_id: user.id,
+                target_id: post.id,
+                target_type: 'post',
+                value: newVote
+            });
+        } catch (err) {
+            console.error(err);
+
+            setUserVote(oldVote);
+            setScore(prev => prev - delta);
         }
-        nexusApi.entities.Post.update(post.id, { score: score + delta });
     };
 
     const handlePollVote = async (optionIndex) => {

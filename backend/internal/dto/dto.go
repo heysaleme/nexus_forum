@@ -46,16 +46,16 @@ type CreateCommunityRequest struct {
 }
 
 type CreatePostRequest struct {
-	CommunityID uint     `json:"community_id" binding:"required"`
-	Title       string   `json:"title" binding:"required"`
-	Content     string   `json:"content"`
-	Type        string   `json:"type" binding:"required"` // "text", "image", "link", "poll"
-	MediaUrls   []string `json:"media_urls"`
-	LinkUrl     string   `json:"link_url"`
-	Tags        []string `json:"tags"`
+	CommunityID uint        `json:"community_id" binding:"required"`
+	Title       string      `json:"title" binding:"required"`
+	Content     string      `json:"content"`
+	Type        string      `json:"type" binding:"required"` // "text", "image", "link", "poll"
+	MediaUrls   []string    `json:"media_urls"`
+	LinkUrl     string      `json:"link_url"`
+	Tags        []string    `json:"tags"`
 	PollOptions interface{} `json:"poll_options"` // JSON representation or options struct
-	IsNSFW      *bool    `json:"is_nsfw"`
-	IsSpoiler   *bool    `json:"is_spoiler"`
+	IsNSFW      *bool       `json:"is_nsfw"`
+	IsSpoiler   *bool       `json:"is_spoiler"`
 }
 
 type CreateCommentRequest struct {
@@ -65,7 +65,7 @@ type CreateCommentRequest struct {
 }
 
 type VoteRequest struct {
-	Value int `json:"value" binding:"required"` // 1 or -1
+	Value int `json:"value"`
 }
 
 type CreateChatRoomRequest struct {

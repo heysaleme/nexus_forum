@@ -65,6 +65,8 @@ const buildQueryString = (filter, sortSpec, limit) => {
 
 const parsePost = (post) => {
     if (!post) return post;
+
+    // Tags
     if (typeof post.tags === 'string') {
         try {
             post.tags = JSON.parse(post.tags);
@@ -72,6 +74,12 @@ const parsePost = (post) => {
             post.tags = [];
         }
     }
+
+    if (!Array.isArray(post.tags)) {
+        post.tags = [];
+    }
+
+    // Media
     if (typeof post.media_urls === 'string') {
         try {
             post.media_urls = JSON.parse(post.media_urls);
@@ -79,6 +87,24 @@ const parsePost = (post) => {
             post.media_urls = [];
         }
     }
+
+    if (!Array.isArray(post.media_urls)) {
+        post.media_urls = [];
+    }
+
+    // Poll options
+    if (typeof post.poll_options === 'string') {
+        try {
+            post.poll_options = JSON.parse(post.poll_options);
+        } catch {
+            post.poll_options = [];
+        }
+    }
+
+    if (!Array.isArray(post.poll_options)) {
+        post.poll_options = [];
+    }
+
     return post;
 };
 

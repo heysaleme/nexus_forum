@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"nexus-forum-backend/internal/model"
 	"nexus-forum-backend/internal/repository"
 )
@@ -17,6 +18,7 @@ type PostService interface {
 	SavePost(userID, postID uint) error
 	UnsavePost(userID, postID uint) error
 	GetSavedByUser(userID uint) ([]*model.SavedPost, error)
+	GetVote(userID, postID uint) (*model.Vote, error)
 }
 
 type postService struct {
@@ -116,7 +118,6 @@ func (s *postService) Delete(userID, postID uint) error {
 	return s.repo.Delete(postID)
 }
 
-
 func (s *postService) List(sortSpec string, limit int) ([]*model.Post, error) {
 	return s.repo.List(sortSpec, limit)
 }
@@ -126,7 +127,13 @@ func (s *postService) Filter(filter map[string]interface{}, sortSpec string, lim
 }
 
 func (s *postService) Vote(userID, postID uint, value int) error {
-	if value != 1 && value != -1 {
+
+	fmt.Println("===== VOTE SERVICE =====")
+	fmt.Println("USER:", userID)
+	fmt.Println("POST:", postID)
+	fmt.Println("VALUE:", value)
+
+	if value != 1 && value != -1 && value != 0 {
 		return errors.New("invalid vote value")
 	}
 
@@ -135,32 +142,39 @@ func (s *postService) Vote(userID, postID uint, value int) error {
 		return err
 	}
 
-	existing, err := s.voteRepo.GetVote(userID, "post", postID)
-	if err == nil {
-		// Existing vote
-		if existing.Value == value {
-			// Cancel vote
-			_ = s.voteRepo.DeleteVote(userID, "post", postID)
-			if value == 1 {
-				post.Upvotes = maxZero(post.Upvotes - 1)
-				post.Score--
-			} else {
-				post.Downvotes = maxZero(post.Downvotes - 1)
-				post.Score++
-			}
+	if value == 0 {
+		existing, err := s.voteRepo.GetVote(userID, "post", postID)
+		if err != nil {
+			return nil
+		}
+		err = s.voteRepo.DeleteVote(userID, "post", postID)
+		if err != nil {
+			return err
+		}
+		if existing.Value == 1 {
+			post.Upvotes = maxZero(post.Upvotes - 1)
+			post.Score--
 		} else {
-			// Flip vote
-			existing.Value = value
-			_ = s.voteRepo.SaveVote(existing)
-			if value == 1 {
-				post.Upvotes++
-				post.Downvotes = maxZero(post.Downvotes - 1)
-				post.Score += 2
-			} else {
-				post.Downvotes++
-				post.Upvotes = maxZero(post.Upvotes - 1)
-				post.Score -= 2
-			}
+			post.Downvotes = maxZero(post.Downvotes - 1)
+			post.Score++
+		}
+		return s.repo.Update(post)
+	}
+
+	existing, err := s.voteRepo.GetVote(userID, "post", postID)
+
+	if err == nil {
+		// Меняем голос +1 <-> -1
+		existing.Value = value
+		_ = s.voteRepo.SaveVote(existing)
+		if value == 1 {
+			post.Upvotes++
+			post.Downvotes = maxZero(post.Downvotes - 1)
+			post.Score += 2
+		} else {
+			post.Downvotes++
+			post.Upvotes = maxZero(post.Upvotes - 1)
+			post.Score -= 2
 		}
 	} else {
 		// New vote
@@ -170,7 +184,15 @@ func (s *postService) Vote(userID, postID uint, value int) error {
 			EntityID:   postID,
 			Value:      value,
 		}
-		_ = s.voteRepo.SaveVote(vote)
+
+		err = s.voteRepo.SaveVote(vote)
+
+		fmt.Println("SAVE VOTE ERR:", err)
+		fmt.Printf("VOTE: %+v\n", vote)
+
+		if err != nil {
+			return err
+		}
 		if value == 1 {
 			post.Upvotes++
 			post.Score++
@@ -181,6 +203,10 @@ func (s *postService) Vote(userID, postID uint, value int) error {
 	}
 
 	return s.repo.Update(post)
+}
+
+func (s *postService) GetVote(userID, postID uint) (*model.Vote, error) {
+	return s.voteRepo.GetVote(userID, "post", postID)
 }
 
 func (s *postService) SavePost(userID, postID uint) error {

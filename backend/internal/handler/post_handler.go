@@ -2,12 +2,14 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	"nexus-forum-backend/internal/dto"
 	"nexus-forum-backend/internal/model"
+
+	"github.com/gin-gonic/gin"
 )
 
 // ================= Post Handlers =================
@@ -89,6 +91,24 @@ func (h *Handlers) GetPostByID(c *gin.Context) {
 		}
 	}
 
+	userID, authenticated := getOptionalUserID(c, h.AuthService)
+
+	fmt.Println("===== GET POST =====")
+	fmt.Println("USER:", userID)
+	fmt.Println("AUTH:", authenticated)
+
+	if authenticated {
+		vote, err := h.PostService.GetVote(userID, post.ID)
+
+		fmt.Println("VOTE:", vote)
+		fmt.Println("ERR:", err)
+
+		if err == nil {
+			post.UserVote = vote.Value
+			fmt.Println("SET USER_VOTE:", vote.Value)
+		}
+	}
+	fmt.Println("JSON USER_VOTE:", post.UserVote)
 	c.JSON(http.StatusOK, post)
 }
 
@@ -146,6 +166,24 @@ func (h *Handlers) ListPosts(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	userID, authenticated := getOptionalUserID(c, h.AuthService)
+
+	println("USER:", userID)
+
+	println("AUTH:", authenticated)
+
+	if authenticated {
+		for _, post := range posts {
+			vote, err := h.PostService.GetVote(userID, post.ID)
+			fmt.Println("POST:", post.ID)
+
+			fmt.Println("ERR:", err)
+			if err == nil {
+				post.UserVote = vote.Value
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, posts)
@@ -275,6 +313,13 @@ func (h *Handlers) VotePost(c *gin.Context) {
 	var req dto.VoteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if req.Value != -1 && req.Value != 0 && req.Value != 1 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "vote must be -1, 0 or 1",
+		})
 		return
 	}
 
