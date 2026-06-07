@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"nexus-forum-backend/internal/model"
@@ -228,5 +229,71 @@ func (s *postService) GetSavedByUser(userID uint) ([]*model.SavedPost, error) {
 }
 
 func (s *postService) VotePoll(userID, postID uint, optionIndex int) error {
-	return nil
+	post, err := s.repo.GetByID(postID)
+	if err != nil {
+		return err
+	}
+
+	var options []map[string]interface{}
+	if err := json.Unmarshal([]byte(post.PollOptions), &options); err != nil {
+		return err
+	}
+
+	if optionIndex < 0 || optionIndex >= len(options) {
+		return errors.New("invalid option")
+	}
+
+	votes := map[string]int{}
+
+	if post.PollVotes != "" {
+		_ = json.Unmarshal([]byte(post.PollVotes), &votes)
+	}
+
+	userKey := fmt.Sprintf("%d", userID)
+
+	// Если уже голосовал
+	if oldOption, exists := votes[userKey]; exists {
+
+		// Нажал тот же вариант -> убрать голос
+		if oldOption == optionIndex {
+
+			if count, ok := options[oldOption]["votes"].(float64); ok {
+				options[oldOption]["votes"] = int(count) - 1
+			}
+
+			delete(votes, userKey)
+
+		} else {
+
+			// Переголосование
+
+			if count, ok := options[oldOption]["votes"].(float64); ok {
+				options[oldOption]["votes"] = int(count) - 1
+			}
+
+			if count, ok := options[optionIndex]["votes"].(float64); ok {
+				options[optionIndex]["votes"] = int(count) + 1
+			}
+
+			votes[userKey] = optionIndex
+		}
+
+	} else {
+
+		// Новый голос
+
+		if count, ok := options[optionIndex]["votes"].(float64); ok {
+			options[optionIndex]["votes"] = int(count) + 1
+		}
+
+		votes[userKey] = optionIndex
+	}
+
+	optionsJSON, _ := json.Marshal(options)
+	votesJSON, _ := json.Marshal(votes)
+
+	post.PollOptions = string(optionsJSON)
+	post.PollVotes = string(votesJSON)
+
+	return s.repo.Update(post)
 }
