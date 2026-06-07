@@ -20,6 +20,7 @@ type commentService struct {
 	postRepo  repository.PostRepository
 	voteRepo  repository.VoteRepository
 	notifRepo repository.NotificationRepository
+	commRepo  repository.CommunityRepository
 }
 
 func NewCommentService(
@@ -28,6 +29,7 @@ func NewCommentService(
 	postRepo repository.PostRepository,
 	voteRepo repository.VoteRepository,
 	notifRepo repository.NotificationRepository,
+	commRepo repository.CommunityRepository,
 ) CommentService {
 	return &commentService{
 		repo:      repo,
@@ -35,6 +37,7 @@ func NewCommentService(
 		postRepo:  postRepo,
 		voteRepo:  voteRepo,
 		notifRepo: notifRepo,
+		commRepo:  commRepo,
 	}
 }
 
@@ -96,10 +99,58 @@ func (s *commentService) Delete(userID, commentID uint) error {
 	if err != nil {
 		return err
 	}
-	if comment.AuthorID != userID {
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return err
+	}
+	
+	isAuthorized := false
+	if comment.AuthorID == userID {
+		isAuthorized = true
+	} else if user.Role == "admin" || user.Role == "moderator" {
+		isAuthorized = true
+	} else {
+		// Verify if community owner where the comment belongs
+		post, err := s.postRepo.GetByID(comment.PostID)
+		if err == nil {
+			comm, err := s.commRepo.GetByID(post.CommunityID)
+			if err == nil && comm.OwnerID == userID {
+				isAuthorized = true
+			}
+		}
+	}
+
+	if !isAuthorized {
 		return errors.New("unauthorized to delete this comment")
 	}
-	return s.repo.Delete(commentID)
+
+	comment.IsDeleted = true
+	if user.Role == "admin" || user.Role == "moderator" {
+		comment.Content = "[удалено модератором]"
+	} else {
+		comment.Content = "[удалено]"
+	}
+
+	// Deduct XP from original comment author
+	if comment.AuthorID != 0 && comment.AuthorID != userID {
+		// Only deduct if someone else deleted it (mod/admin action)
+		author, err := s.userRepo.GetByID(comment.AuthorID)
+		if err == nil && author != nil {
+			author.XP = maxZero(author.XP - 8)
+			recalculateLevel(author)
+			_ = s.userRepo.Update(author)
+		}
+	} else if comment.AuthorID == userID {
+		// Self-deletion also loses XP
+		userObj, err := s.userRepo.GetByID(userID)
+		if err == nil && userObj != nil {
+			userObj.XP = maxZero(userObj.XP - 8)
+			recalculateLevel(userObj)
+			_ = s.userRepo.Update(userObj)
+		}
+	}
+
+	return s.repo.Update(comment)
 }
 
 func (s *commentService) GetByPostID(postID uint) ([]*model.Comment, error) {

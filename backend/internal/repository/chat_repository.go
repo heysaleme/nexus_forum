@@ -15,6 +15,8 @@ type ChatRepository interface {
 	CreateMessage(msg *model.Message) error
 	GetMessagesByRoom(roomID uint, limit int) ([]*model.Message, error)
 	MarkRoomMessagesRead(roomID, userID uint) error
+	DeleteMessage(id uint) error
+	GetMessage(id uint) (*model.Message, error)
 }
 
 type chatRepository struct {
@@ -49,6 +51,9 @@ func (r *chatRepository) GetRoomsByUser(userID uint) ([]*model.ChatRoom, error) 
 		if err := json.Unmarshal([]byte(room.Participants), &pids); err == nil {
 			for _, pid := range pids {
 				if pid == userID {
+					var count int64
+					r.db.Model(&model.Message{}).Where("chat_room_id = ? AND sender_id != ? AND is_read = ?", room.ID, userID, false).Count(&count)
+					room.UnreadCount = int(count)
 					rooms = append(rooms, room)
 					break
 				}
@@ -78,4 +83,14 @@ func (r *chatRepository) GetMessagesByRoom(roomID uint, limit int) ([]*model.Mes
 
 func (r *chatRepository) MarkRoomMessagesRead(roomID, userID uint) error {
 	return r.db.Model(&model.Message{}).Where("chat_room_id = ? AND sender_id != ?", roomID, userID).Update("is_read", true).Error
+}
+
+func (r *chatRepository) DeleteMessage(id uint) error {
+	return r.db.Delete(&model.Message{}, id).Error
+}
+
+func (r *chatRepository) GetMessage(id uint) (*model.Message, error) {
+	var msg model.Message
+	err := r.db.First(&msg, id).Error
+	return &msg, err
 }

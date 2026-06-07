@@ -12,6 +12,7 @@ type ChatRoom struct {
 	AvatarURL     string    `json:"avatar_url"`
 	LastMessage   string    `json:"last_message"`
 	LastMessageAt time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"last_message_at"`
+	UnreadCount   int       `gorm:"-" json:"unread_count"`
 	CreatedAt     time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"created_date"`
 }
 

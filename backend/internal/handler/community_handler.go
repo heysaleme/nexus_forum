@@ -130,3 +130,45 @@ func (h *Handlers) GetCommunityMembers(c *gin.Context) {
 
 	c.JSON(http.StatusOK, members)
 }
+
+func (h *Handlers) GetCommunityMemberships(c *gin.Context) {
+	userIDStr := c.Query("user_id")
+	if userIDStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id query param required"})
+		return
+	}
+
+	userID, err := strconv.ParseUint(userIDStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user_id"})
+		return
+	}
+
+	memberships, err := h.CommService.GetMemberships(uint(userID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, memberships)
+}
+
+func (h *Handlers) DeleteCommunity(c *gin.Context) {
+	uid, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
+	commID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+
+	err := h.CommService.Delete(uid, commID)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}

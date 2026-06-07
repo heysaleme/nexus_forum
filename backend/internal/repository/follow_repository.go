@@ -10,6 +10,8 @@ type FollowRepository interface {
 	Follow(follow *model.UserFollow) error
 	Unfollow(followerID, followingID uint) error
 	GetFollow(followerID, followingID uint) (*model.UserFollow, error)
+	GetFollowers(userID uint) ([]*model.UserFollow, error)
+	GetFollowing(userID uint) ([]*model.UserFollow, error)
 }
 
 type followRepository struct {
@@ -32,4 +34,16 @@ func (r *followRepository) GetFollow(followerID, followingID uint) (*model.UserF
 	var follow model.UserFollow
 	err := r.db.Where("follower_id = ? AND following_id = ?", followerID, followingID).First(&follow).Error
 	return &follow, err
+}
+
+func (r *followRepository) GetFollowers(userID uint) ([]*model.UserFollow, error) {
+	var follows []*model.UserFollow
+	err := r.db.Where("following_id = ?", userID).Find(&follows).Error
+	return follows, err
+}
+
+func (r *followRepository) GetFollowing(userID uint) ([]*model.UserFollow, error) {
+	var follows []*model.UserFollow
+	err := r.db.Where("follower_id = ?", userID).Find(&follows).Error
+	return follows, err
 }

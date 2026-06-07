@@ -92,10 +92,10 @@ func main() {
 	userService := service.NewUserService(userRepo, followRepo)
 	commService := service.NewCommunityService(commRepo, userRepo)
 	postService := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, savedRepo, notifRepo)
-	commentService := service.NewCommentService(commentRepo, userRepo, postRepo, voteRepo, notifRepo)
+	commentService := service.NewCommentService(commentRepo, userRepo, postRepo, voteRepo, notifRepo, commRepo)
 	chatService := service.NewChatService(chatRepo, userRepo)
 	notifService := service.NewNotificationService(notifRepo)
-	modService := service.NewModerationService(modRepo, userRepo, postRepo, commentRepo)
+	modService := service.NewModerationService(modRepo, userRepo, postRepo, commentRepo, commRepo)
 	analyticsService := service.NewAnalyticsService(analyticsRepo, userRepo, postRepo)
 
 	// WebSocket hub (starts background goroutine)
@@ -125,10 +125,14 @@ func main() {
 		api.POST("/auth/login", handlers.Login)
 
 		// Public User details
+		api.GET("/users", handlers.ListUsers)
 		api.GET("/users/:id", handlers.GetUserByID)
+		api.GET("/users/:id/followers", handlers.GetFollowers)
+		api.GET("/users/:id/following", handlers.GetFollowing)
 
 		// Public Community endpoints
 		api.GET("/communities", handlers.ListCommunities)
+		api.GET("/communities/memberships", handlers.GetCommunityMemberships)
 		api.GET("/communities/:id", handlers.GetCommunityByID)
 		api.GET("/communities/:id/members", handlers.GetCommunityMembers)
 
@@ -149,6 +153,7 @@ func main() {
 			// Current user profile
 			secured.GET("/auth/me", handlers.GetMe)
 			secured.PUT("/auth/me", handlers.UpdateMe)
+			secured.PUT("/users/:id", handlers.UpdateUser)
 
 			// Follow operations
 			secured.POST("/users/:id/follow", handlers.Follow)
@@ -158,9 +163,11 @@ func main() {
 			secured.POST("/communities", handlers.CreateCommunity)
 			secured.POST("/communities/:id/join", handlers.JoinCommunity)
 			secured.POST("/communities/:id/leave", handlers.LeaveCommunity)
+			secured.DELETE("/communities/:id", handlers.DeleteCommunity)
 
 			// Post actions
 			secured.POST("/posts", handlers.CreatePost)
+			secured.PUT("/posts/:id", handlers.UpdatePost)
 			secured.DELETE("/posts/:id", handlers.DeletePost)
 			secured.POST("/posts/:id/vote", handlers.VotePost)
 			secured.POST("/posts/:id/save", handlers.SavePost)
@@ -169,18 +176,26 @@ func main() {
 
 			// Comment actions
 			secured.POST("/comments", handlers.CreateComment)
+			secured.PUT("/comments/:id", handlers.UpdateComment)
 			secured.POST("/comments/:id/vote", handlers.VoteComment)
+			secured.DELETE("/comments/:id", handlers.DeleteComment)
 
 			// Chat actions
 			secured.POST("/chats", handlers.CreateChatRoom)
 			secured.GET("/chats", handlers.GetChatRooms)
+			secured.PUT("/chats/:id", handlers.UpdateChatRoom)
 			secured.GET("/chats/:id/messages", handlers.GetMessages)
 			secured.POST("/chats/:id/messages", handlers.SendMessage)
+			secured.DELETE("/messages/:id", handlers.DeleteMessage)
 
 			// Notification actions
 			secured.GET("/notifications", handlers.GetNotifications)
 			secured.POST("/notifications/read", handlers.MarkAllNotificationsRead)
 			secured.POST("/notifications/:id/read", handlers.MarkNotificationRead)
+			secured.PUT("/notifications/:id", handlers.MarkNotificationRead)
+
+			// Reports (any authenticated user)
+			secured.POST("/reports", handlers.CreateReport)
 
 			// Moderation actions (admin/moderator only, enforced inside service)
 			secured.POST("/moderation/users/:id/ban", handlers.BanUser)

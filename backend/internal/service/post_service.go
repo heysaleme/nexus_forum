@@ -88,11 +88,34 @@ func (s *postService) Delete(userID, postID uint) error {
 	if err != nil {
 		return err
 	}
-	if post.AuthorID != userID {
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return err
+	}
+	if post.AuthorID != userID && user.Role != "admin" && user.Role != "moderator" {
 		return errors.New("unauthorized to delete this post")
 	}
+
+	// Deduct XP from original author
+	if post.AuthorID != 0 {
+		author, err := s.userRepo.GetByID(post.AuthorID)
+		if err == nil && author != nil {
+			author.XP = maxZero(author.XP - 20)
+			recalculateLevel(author)
+			_ = s.userRepo.Update(author)
+		}
+	}
+
+	// Decrement community post count
+	comm, _ := s.commRepo.GetByID(post.CommunityID)
+	if comm != nil && comm.PostCount > 0 {
+		comm.PostCount--
+		_ = s.commRepo.Update(comm)
+	}
+
 	return s.repo.Delete(postID)
 }
+
 
 func (s *postService) List(sortSpec string, limit int) ([]*model.Post, error) {
 	return s.repo.List(sortSpec, limit)

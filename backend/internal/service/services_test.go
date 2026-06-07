@@ -337,7 +337,7 @@ func TestCommentService_CreateAndVote(t *testing.T) {
 	notifRepo := repository.NewNotificationRepository(db)
 	authSvc := service.NewAuthService(userRepo, "comment-secret")
 	postSvc := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, savedRepo, notifRepo)
-	commentSvc := service.NewCommentService(commentRepo, userRepo, postRepo, voteRepo, notifRepo)
+	commentSvc := service.NewCommentService(commentRepo, userRepo, postRepo, voteRepo, notifRepo, commRepo)
 
 	_ = authSvc.Register("kate@example.com", "pass")
 	_, author, _ := authSvc.VerifyOTP("kate@example.com", "123456")
@@ -374,13 +374,13 @@ func TestCommentService_CreateAndVote(t *testing.T) {
 		t.Errorf("expected comment score=1, got %d", voted.Score)
 	}
 
-	// Unauthorized delete
-	if err := commentSvc.Delete(author.ID, comment.ID); err == nil {
-		t.Error("expected error when non-author deletes comment")
+	// Unauthorized delete (voter is unrelated to the community)
+	if err := commentSvc.Delete(voter.ID, comment.ID); err == nil {
+		t.Error("expected error when unrelated user deletes comment")
 	}
-	// Authorized delete
-	if err := commentSvc.Delete(commenter.ID, comment.ID); err != nil {
-		t.Fatalf("Comment.Delete failed: %v", err)
+	// Authorized delete (author is community owner so can delete)
+	if err := commentSvc.Delete(author.ID, comment.ID); err != nil {
+		t.Fatalf("Comment.Delete by owner failed: %v", err)
 	}
 }
 
@@ -401,7 +401,7 @@ func TestModerationService_BanAndUnban(t *testing.T) {
 
 	authSvc := service.NewAuthService(userRepo, "mod-secret")
 	postSvc := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, savedRepo, notifRepo)
-	modSvc := service.NewModerationService(modRepo, userRepo, postRepo, commentRepo)
+	modSvc := service.NewModerationService(modRepo, userRepo, postRepo, commentRepo, commRepo)
 
 	// Create admin
 	_ = authSvc.Register("admin@example.com", "pass")

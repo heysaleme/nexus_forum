@@ -19,6 +19,7 @@ type CommunityRepository interface {
 	GetMember(userID, communityID uint) (*model.CommunityMember, error)
 	GetMemberships(userID uint) ([]*model.CommunityMember, error)
 	GetMembers(communityID uint) ([]*model.CommunityMember, error)
+	Delete(id uint) error
 }
 
 type communityRepository struct {
@@ -89,4 +90,8 @@ func (r *communityRepository) GetMembers(communityID uint) ([]*model.CommunityMe
 	var members []*model.CommunityMember
 	err := r.db.Where("community_id = ?", communityID).Find(&members).Error
 	return members, err
+}
+
+func (r *communityRepository) Delete(id uint) error {
+	return r.db.Delete(&model.Community{}, id).Error
 }

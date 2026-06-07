@@ -61,6 +61,34 @@ func (h *Handlers) ListComments(c *gin.Context) {
 	c.JSON(http.StatusOK, comments)
 }
 
+func (h *Handlers) UpdateComment(c *gin.Context) {
+	uid, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
+	commentID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	comment, err := h.CommentService.Update(uid, commentID, req.Content)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, comment)
+}
+
 func (h *Handlers) VoteComment(c *gin.Context) {
 	uid, ok := getUserID(c)
 	if !ok {
@@ -81,6 +109,26 @@ func (h *Handlers) VoteComment(c *gin.Context) {
 	err := h.CommentService.Vote(uid, commentID, req.Value)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func (h *Handlers) DeleteComment(c *gin.Context) {
+	uid, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
+	commentID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+
+	err := h.CommentService.Delete(uid, commentID)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
 

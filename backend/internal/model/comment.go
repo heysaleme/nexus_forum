@@ -11,6 +11,7 @@ type Comment struct {
 	AuthorID  uint      `gorm:"not null" json:"author_id"`
 	Content   string    `gorm:"not null" json:"content"`
 	Score     int       `gorm:"default:0" json:"score"`
+	IsDeleted bool      `gorm:"default:false" json:"is_deleted"`
 	CreatedAt time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"created_date"`
 
 	// Helper fields to join for responses

@@ -14,6 +14,12 @@ func (h *Handlers) GetAnalyticsDashboard(c *gin.Context) {
 		return
 	}
 
+	roleVal, exists := c.Get("role")
+	if !exists || roleVal.(string) != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin access required"})
+		return
+	}
+
 	dashboard, err := h.Analytics.GetDashboard()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

@@ -21,8 +21,10 @@ type Post struct {
 	LinkUrl       string    `json:"link_url"`
 	Tags          string    `gorm:"type:text" json:"tags"`         // JSON array of strings
 	PollOptions   string    `gorm:"type:text" json:"poll_options"` // JSON array of options
-	IsPinned      bool      `gorm:"default:false" json:"is_pinned"`
-	CreatedAt     time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"created_date"`
+	IsPinned        bool      `gorm:"default:false" json:"is_pinned"`
+	IsNSFW          bool      `gorm:"default:false" json:"is_nsfw"`
+	IsSpoiler       bool      `gorm:"default:false" json:"is_spoiler"`
+	CreatedAt       time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"created_date"`
 
 	// Helper fields to join for responses
 	AuthorUsername  string `gorm:"-" json:"author_username"`

@@ -53,7 +53,9 @@ type CreatePostRequest struct {
 	MediaUrls   []string `json:"media_urls"`
 	LinkUrl     string   `json:"link_url"`
 	Tags        []string `json:"tags"`
-	PollOptions string   `json:"poll_options"` // JSON representation or options struct
+	PollOptions interface{} `json:"poll_options"` // JSON representation or options struct
+	IsNSFW      *bool    `json:"is_nsfw"`
+	IsSpoiler   *bool    `json:"is_spoiler"`
 }
 
 type CreateCommentRequest struct {

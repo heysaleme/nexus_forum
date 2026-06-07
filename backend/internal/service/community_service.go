@@ -15,6 +15,7 @@ type CommunityService interface {
 	Leave(userID, communityID uint) error
 	GetMemberships(userID uint) ([]*model.CommunityMember, error)
 	GetMembers(communityID uint) ([]*model.CommunityMember, error)
+	Delete(userID, communityID uint) error
 }
 
 type communityService struct {
@@ -121,4 +122,22 @@ func (s *communityService) GetMemberships(userID uint) ([]*model.CommunityMember
 
 func (s *communityService) GetMembers(communityID uint) ([]*model.CommunityMember, error) {
 	return s.repo.GetMembers(communityID)
+}
+
+func (s *communityService) Delete(userID, communityID uint) error {
+	comm, err := s.repo.GetByID(communityID)
+	if err != nil {
+		return err
+	}
+
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return err
+	}
+
+	if comm.OwnerID != userID && user.Role != "admin" && user.Role != "moderator" {
+		return errors.New("unauthorized to delete this community")
+	}
+
+	return s.repo.Delete(communityID)
 }

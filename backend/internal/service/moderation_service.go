@@ -19,6 +19,8 @@ type ModerationService interface {
 	GetLogs(limit int) ([]*model.ModerationLog, error)
 	// GetLogsByCommunity returns mod logs for a specific community.
 	GetLogsByCommunity(communityID uint, limit int) ([]*model.ModerationLog, error)
+	// CreateModerationLog persists any log entry (used for reports).
+	CreateModerationLog(modID uint, modUsername, action, targetType string, targetID uint, reason string) error
 }
 
 type moderationService struct {
@@ -26,6 +28,7 @@ type moderationService struct {
 	userRepo    repository.UserRepository
 	postRepo    repository.PostRepository
 	commentRepo repository.CommentRepository
+	commRepo    repository.CommunityRepository
 }
 
 func NewModerationService(
@@ -33,12 +36,14 @@ func NewModerationService(
 	userRepo repository.UserRepository,
 	postRepo repository.PostRepository,
 	commentRepo repository.CommentRepository,
+	commRepo repository.CommunityRepository,
 ) ModerationService {
 	return &moderationService{
 		modRepo:     modRepo,
 		userRepo:    userRepo,
 		postRepo:    postRepo,
 		commentRepo: commentRepo,
+		commRepo:    commRepo,
 	}
 }
 
@@ -109,15 +114,26 @@ func (s *moderationService) UnbanUser(moderatorID, targetUserID uint, reason str
 }
 
 func (s *moderationService) RemovePost(moderatorID, postID uint, reason string) error {
-	mod, err := s.requireAdminOrMod(moderatorID)
-	if err != nil {
-		return err
-	}
-
 	post, err := s.postRepo.GetByID(postID)
 	if err != nil {
 		return errors.New("post not found")
 	}
+
+	isAuthorized := false
+	user, err := s.userRepo.GetByID(moderatorID)
+	if err == nil && (user.Role == "admin" || user.Role == "moderator") {
+		isAuthorized = true
+	} else {
+		comm, err := s.commRepo.GetByID(post.CommunityID)
+		if err == nil && comm.OwnerID == moderatorID {
+			isAuthorized = true
+		}
+	}
+
+	if !isAuthorized {
+		return errors.New("insufficient permissions: admin, moderator or community owner role required")
+	}
+
 	if post.Status == "removed" {
 		return errors.New("post is already removed")
 	}
@@ -127,30 +143,56 @@ func (s *moderationService) RemovePost(moderatorID, postID uint, reason string) 
 		return err
 	}
 
+	var modUsername string
+	if user != nil {
+		modUsername = user.Username
+	}
+
 	return s.modRepo.CreateLog(&model.ModerationLog{
 		ModeratorID:       moderatorID,
 		TargetID:          postID,
 		TargetType:        "post",
 		Action:            "remove_post",
 		Reason:            reason,
-		ModeratorUsername: mod.Username,
+		ModeratorUsername: modUsername,
 	})
 }
 
 func (s *moderationService) RemoveComment(moderatorID, commentID uint, reason string) error {
-	mod, err := s.requireAdminOrMod(moderatorID)
-	if err != nil {
-		return err
-	}
-
 	comment, err := s.commentRepo.GetByID(commentID)
 	if err != nil {
 		return errors.New("comment not found")
 	}
 
+	post, err := s.postRepo.GetByID(comment.PostID)
+	if err != nil {
+		return errors.New("associated post not found")
+	}
+
+	isAuthorized := false
+	user, err := s.userRepo.GetByID(moderatorID)
+	if err == nil && (user.Role == "admin" || user.Role == "moderator") {
+		isAuthorized = true
+	} else {
+		comm, err := s.commRepo.GetByID(post.CommunityID)
+		if err == nil && comm.OwnerID == moderatorID {
+			isAuthorized = true
+		}
+	}
+
+	if !isAuthorized {
+		return errors.New("insufficient permissions: admin, moderator or community owner role required")
+	}
+
+	comment.IsDeleted = true
 	comment.Content = "[удалено модератором]"
 	if err := s.commentRepo.Update(comment); err != nil {
 		return err
+	}
+
+	var modUsername string
+	if user != nil {
+		modUsername = user.Username
 	}
 
 	return s.modRepo.CreateLog(&model.ModerationLog{
@@ -159,7 +201,7 @@ func (s *moderationService) RemoveComment(moderatorID, commentID uint, reason st
 		TargetType:        "comment",
 		Action:            "remove_comment",
 		Reason:            reason,
-		ModeratorUsername: mod.Username,
+		ModeratorUsername: modUsername,
 	})
 }
 
@@ -169,4 +211,15 @@ func (s *moderationService) GetLogs(limit int) ([]*model.ModerationLog, error) {
 
 func (s *moderationService) GetLogsByCommunity(communityID uint, limit int) ([]*model.ModerationLog, error) {
 	return s.modRepo.GetLogsByCommunity(communityID, limit)
+}
+
+func (s *moderationService) CreateModerationLog(modID uint, modUsername, action, targetType string, targetID uint, reason string) error {
+	return s.modRepo.CreateLog(&model.ModerationLog{
+		ModeratorID:       modID,
+		ModeratorUsername: modUsername,
+		Action:            action,
+		TargetType:        targetType,
+		TargetID:          targetID,
+		Reason:            reason,
+	})
 }

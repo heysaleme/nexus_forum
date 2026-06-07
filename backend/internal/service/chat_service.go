@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"nexus-forum-backend/internal/model"
 	"nexus-forum-backend/internal/repository"
 	"time"
@@ -12,6 +13,10 @@ type ChatService interface {
 	GetRoomsByUser(userID uint) ([]*model.ChatRoom, error)
 	GetMessages(roomID uint, limit int) ([]*model.Message, error)
 	SendMessage(senderID uint, roomID uint, content string) (*model.Message, error)
+	MarkRoomAsRead(roomID, userID uint) error
+	GetRoom(roomID, userID uint) (*model.ChatRoom, error)
+	UpdateRoom(room *model.ChatRoom) error
+	DeleteMessage(userID, msgID uint) error
 }
 
 type chatService struct {
@@ -87,4 +92,31 @@ func (s *chatService) SendMessage(senderID uint, roomID uint, content string) (*
 	}
 
 	return msg, nil
+}
+
+func (s *chatService) MarkRoomAsRead(roomID, userID uint) error {
+	return s.repo.MarkRoomMessagesRead(roomID, userID)
+}
+
+func (s *chatService) GetRoom(roomID, userID uint) (*model.ChatRoom, error) {
+	return s.repo.GetRoom(roomID)
+}
+
+func (s *chatService) UpdateRoom(room *model.ChatRoom) error {
+	return s.repo.UpdateRoom(room)
+}
+
+func (s *chatService) DeleteMessage(userID, msgID uint) error {
+	msg, err := s.repo.GetMessage(msgID)
+	if err != nil {
+		return err
+	}
+	if msg.SenderID != userID {
+		// Verify if admin/moderator as well
+		user, err := s.userRepo.GetByID(userID)
+		if err != nil || (user.Role != "admin" && user.Role != "moderator") {
+			return errors.New("unauthorized to delete this message")
+		}
+	}
+	return s.repo.DeleteMessage(msgID)
 }
