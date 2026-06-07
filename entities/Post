@@ -17,8 +17,7 @@
         "image",
         "video",
         "link",
-        "poll",
-        "wiki"
+        "poll"
       ],
       "default": "text"
     },
