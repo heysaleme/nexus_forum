@@ -1,0 +1,249 @@
+package handler
+
+import (
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+	"nexus-forum-backend/internal/service"
+)
+
+// WSMessage is the envelope sent over WebSocket connections.
+type WSMessage struct {
+	Type       string          `json:"type"`     // "message", "ping", "pong", "error"
+	RoomID     uint            `json:"room_id"`
+	SenderID   uint            `json:"sender_id"`
+	SenderName string          `json:"sender_name"`
+	Content    string          `json:"content"`
+	Timestamp  time.Time       `json:"timestamp"`
+	Raw        json.RawMessage `json:"data,omitempty"`
+}
+
+// wsClient represents one live WebSocket connection.
+type wsClient struct {
+	roomID uint
+	userID uint
+	conn   *websocket.Conn
+	send   chan []byte
+	hub    *WSHub
+}
+
+// WSHub manages all active WebSocket connections organized by chat room.
+type WSHub struct {
+	mu      sync.RWMutex
+	rooms   map[uint]map[*wsClient]bool // roomID -> set of clients
+	join    chan *wsClient
+	leave   chan *wsClient
+	broadcast chan broadcastMsg
+}
+
+type broadcastMsg struct {
+	roomID  uint
+	payload []byte
+}
+
+// NewWSHub creates and starts a new hub. Must be called once during startup.
+func NewWSHub() *WSHub {
+	h := &WSHub{
+		rooms:     make(map[uint]map[*wsClient]bool),
+		join:      make(chan *wsClient, 64),
+		leave:     make(chan *wsClient, 64),
+		broadcast: make(chan broadcastMsg, 256),
+	}
+	go h.run()
+	return h
+}
+
+func (h *WSHub) run() {
+	for {
+		select {
+		case client := <-h.join:
+			h.mu.Lock()
+			if h.rooms[client.roomID] == nil {
+				h.rooms[client.roomID] = make(map[*wsClient]bool)
+			}
+			h.rooms[client.roomID][client] = true
+			h.mu.Unlock()
+			slog.Info("ws client joined room", "room_id", client.roomID, "user_id", client.userID)
+
+		case client := <-h.leave:
+			h.mu.Lock()
+			if room, ok := h.rooms[client.roomID]; ok {
+				delete(room, client)
+				if len(room) == 0 {
+					delete(h.rooms, client.roomID)
+				}
+			}
+			close(client.send)
+			h.mu.Unlock()
+			slog.Info("ws client left room", "room_id", client.roomID, "user_id", client.userID)
+
+		case msg := <-h.broadcast:
+			h.mu.RLock()
+			room := h.rooms[msg.roomID]
+			h.mu.RUnlock()
+			for client := range room {
+				select {
+				case client.send <- msg.payload:
+				default:
+					// Slow client — drop and disconnect
+					h.leave <- client
+				}
+			}
+		}
+	}
+}
+
+// Broadcast sends a message payload to all clients in a room.
+func (h *WSHub) Broadcast(roomID uint, payload []byte) {
+	h.broadcast <- broadcastMsg{roomID: roomID, payload: payload}
+}
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin:     func(r *http.Request) bool { return true },
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+}
+
+// ServeWS is the Gin handler that upgrades an HTTP request to a WebSocket
+// connection and attaches the client to a hub room.
+//
+// Route: GET /api/ws/chat/:id   (requires Auth header via query ?token=... or header)
+func ServeWS(hub *WSHub, chatSvc service.ChatService, authSvc service.AuthService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// --- Authenticate via ?token= query param (browser WS can't set headers)
+		tokenStr := c.Query("token")
+		if tokenStr == "" {
+			tokenStr = c.GetHeader("Authorization")
+			if len(tokenStr) > 7 && tokenStr[:7] == "Bearer " {
+				tokenStr = tokenStr[7:]
+			}
+		}
+
+		claims, err := authSvc.ValidateToken(tokenStr)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+
+		roomID, ok := parseID(c, "id")
+		if !ok {
+			return
+		}
+
+		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil {
+			slog.Error("ws upgrade failed", "error", err)
+			return
+		}
+
+		client := &wsClient{
+			roomID: roomID,
+			userID: claims.UserID,
+			conn:   conn,
+			send:   make(chan []byte, 64),
+			hub:    hub,
+		}
+
+		hub.join <- client
+
+		// Start writer and reader goroutines
+		go client.writePump()
+		go client.readPump(chatSvc, claims.Username)
+	}
+}
+
+const (
+	writeWait      = 10 * time.Second
+	pongWait       = 60 * time.Second
+	pingPeriod     = (pongWait * 9) / 10
+	maxMessageSize = 4096
+)
+
+// readPump reads messages from the WebSocket and broadcasts them to the room.
+func (c *wsClient) readPump(chatSvc service.ChatService, senderName string) {
+	defer func() {
+		c.hub.leave <- c
+		c.conn.Close()
+	}()
+
+	c.conn.SetReadLimit(maxMessageSize)
+	_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetPongHandler(func(string) error {
+		return c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	})
+
+	for {
+		_, raw, err := c.conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				slog.Warn("ws unexpected close", "error", err, "user_id", c.userID)
+			}
+			return
+		}
+
+		var incoming WSMessage
+		if err := json.Unmarshal(raw, &incoming); err != nil {
+			continue
+		}
+
+		if incoming.Type == "ping" {
+			pong, _ := json.Marshal(WSMessage{Type: "pong", Timestamp: time.Now()})
+			c.send <- pong
+			continue
+		}
+
+		// Persist the message via ChatService
+		msg, err := chatSvc.SendMessage(c.userID, c.roomID, incoming.Content)
+		if err != nil {
+			slog.Warn("ws failed to persist message", "error", err)
+			continue
+		}
+
+		// Build outgoing envelope and broadcast to all room members
+		out := WSMessage{
+			Type:       "message",
+			RoomID:     c.roomID,
+			SenderID:   c.userID,
+			SenderName: senderName,
+			Content:    incoming.Content,
+			Timestamp:  msg.CreatedAt,
+		}
+		payload, _ := json.Marshal(out)
+		c.hub.Broadcast(c.roomID, payload)
+	}
+}
+
+// writePump writes messages from the send channel to the WebSocket.
+func (c *wsClient) writePump() {
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		c.conn.Close()
+	}()
+
+	for {
+		select {
+		case message, ok := <-c.send:
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if !ok {
+				// Hub closed the channel
+				_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
+				return
+			}
+
+		case <-ticker.C:
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+		}
+	}
+}
