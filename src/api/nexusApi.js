@@ -363,6 +363,16 @@ const nexusApi = {
                 });
             }
         },
+        PollVote: {
+            async create(postId, optionIndex) {
+                return request(`/posts/${postId}/poll`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        option_index: optionIndex
+                    }),
+                });
+            }
+        },
         SavedPost: {
             async filter(filter = {}) {
                 if (filter.user_id) {
