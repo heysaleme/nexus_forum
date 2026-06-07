@@ -1,0 +1,53 @@
+{
+    "name": "Comment",
+    "type": "object",
+    "properties": {
+        "post_id": {
+            "type": "string"
+        },
+        "author_id": {
+            "type": "string"
+        },
+        "author_username": {
+            "type": "string"
+        },
+        "author_avatar": {
+            "type": "string"
+        },
+        "author_level": {
+            "type": "number"
+        },
+        "parent_id": {
+            "type": "string",
+            "description": "Parent comment ID for threading (null = top level)"
+        },
+        "content": {
+            "type": "string"
+        },
+        "upvotes": {
+            "type": "number",
+            "default": 0
+        },
+        "downvotes": {
+            "type": "number",
+            "default": 0
+        },
+        "score": {
+            "type": "number",
+            "default": 0
+        },
+        "is_deleted": {
+            "type": "boolean",
+            "default": false
+        },
+        "depth": {
+            "type": "number",
+            "default": 0
+        }
+    },
+    "required": [
+        "post_id",
+        "author_id",
+        "content"
+    ]
+}

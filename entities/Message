@@ -1,0 +1,45 @@
+{
+  "name": "Message",
+  "type": "object",
+  "properties": {
+    "sender_id": {
+      "type": "string"
+    },
+    "sender_username": {
+      "type": "string"
+    },
+    "sender_avatar": {
+      "type": "string"
+    },
+    "receiver_id": {
+      "type": "string"
+    },
+    "chat_room_id": {
+      "type": "string",
+      "description": "For group chats"
+    },
+    "content": {
+      "type": "string"
+    },
+    "media_url": {
+      "type": "string"
+    },
+    "is_read": {
+      "type": "boolean",
+      "default": false
+    },
+    "message_type": {
+      "type": "string",
+      "enum": [
+        "text",
+        "image",
+        "system"
+      ],
+      "default": "text"
+    }
+  },
+  "required": [
+    "sender_id",
+    "content"
+  ]
+}

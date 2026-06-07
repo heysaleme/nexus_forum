@@ -1,0 +1,22 @@
+{
+  "name": "SavedPost",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "post_id": {
+      "type": "string"
+    },
+    "post_title": {
+      "type": "string"
+    },
+    "post_community": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "post_id"
+  ]
+}

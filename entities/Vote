@@ -1,0 +1,33 @@
+{
+  "name": "Vote",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "target_id": {
+      "type": "string"
+    },
+    "target_type": {
+      "type": "string",
+      "enum": [
+        "post",
+        "comment"
+      ]
+    },
+    "value": {
+      "type": "number",
+      "enum": [
+        1,
+        -1
+      ],
+      "description": "1 = upvote, -1 = downvote"
+    }
+  },
+  "required": [
+    "user_id",
+    "target_id",
+    "target_type",
+    "value"
+  ]
+}

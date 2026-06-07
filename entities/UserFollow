@@ -1,0 +1,22 @@
+{
+  "name": "UserFollow",
+  "type": "object",
+  "properties": {
+    "follower_id": {
+      "type": "string"
+    },
+    "following_id": {
+      "type": "string"
+    },
+    "following_username": {
+      "type": "string"
+    },
+    "following_avatar": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "follower_id",
+    "following_id"
+  ]
+}

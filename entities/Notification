@@ -1,0 +1,58 @@
+{
+  "name": "Notification",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "reply",
+        "mention",
+        "follow",
+        "message",
+        "moderation",
+        "achievement",
+        "recommendation",
+        "vote"
+      ]
+    },
+    "actor_id": {
+      "type": "string"
+    },
+    "actor_username": {
+      "type": "string"
+    },
+    "actor_avatar": {
+      "type": "string"
+    },
+    "target_id": {
+      "type": "string"
+    },
+    "target_type": {
+      "type": "string",
+      "enum": [
+        "post",
+        "comment",
+        "user",
+        "community",
+        "achievement"
+      ]
+    },
+    "title": {
+      "type": "string"
+    },
+    "body": {
+      "type": "string"
+    },
+    "is_read": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "user_id",
+    "type"
+  ]
+}

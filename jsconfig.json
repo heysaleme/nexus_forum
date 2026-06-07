@@ -1,0 +1,41 @@
+{
+    "compilerOptions": {
+        "baseUrl": ".",
+        "paths": {
+            "@/*": [
+                "./src/*"
+            ]
+        },
+        "allowJs": true,
+        "noEmit": true,
+        "jsx": "react-jsx",
+        "module": "esnext",
+        "moduleResolution": "bundler",
+        "checkJs": false,
+        "lib": [
+            "esnext",
+            "dom"
+        ],
+        "target": "esnext",
+        "skipLibCheck": true,
+        "allowSyntheticDefaultImports": true,
+        "esModuleInterop": true,
+        "resolveJsonModule": true,
+        "types": [
+            "vite/client"
+        ]
+    },
+    "include": [
+        "src/**/*.js",
+        "src/**/*.jsx",
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "vite.config.js",
+        "tailwind.config.js"
+    ],
+    "exclude": [
+        "node_modules",
+        "dist",
+        "src/vite-plugins"
+    ]
+}

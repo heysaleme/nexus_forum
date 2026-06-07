@@ -1,0 +1,47 @@
+{
+  "name": "Achievement",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "username": {
+      "type": "string"
+    },
+    "achievement_name": {
+      "type": "string",
+      "enum": [
+        "first_post",
+        "first_comment",
+        "rising_star",
+        "community_builder",
+        "wiki_master",
+        "social_butterfly",
+        "veteran",
+        "top_contributor",
+        "trendsetter",
+        "supporter"
+      ]
+    },
+    "achievement_icon": {
+      "type": "string"
+    },
+    "achievement_description": {
+      "type": "string"
+    },
+    "tier": {
+      "type": "string",
+      "enum": [
+        "bronze",
+        "silver",
+        "gold",
+        "platinum"
+      ],
+      "default": "bronze"
+    }
+  },
+  "required": [
+    "user_id",
+    "achievement_name"
+  ]
+}

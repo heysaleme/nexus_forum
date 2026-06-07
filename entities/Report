@@ -1,0 +1,61 @@
+{
+  "name": "Report",
+  "type": "object",
+  "properties": {
+    "reporter_id": {
+      "type": "string"
+    },
+    "reporter_username": {
+      "type": "string"
+    },
+    "target_id": {
+      "type": "string"
+    },
+    "target_type": {
+      "type": "string",
+      "enum": [
+        "post",
+        "comment",
+        "user",
+        "community"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "spam",
+        "harassment",
+        "hate_speech",
+        "misinformation",
+        "nsfw",
+        "illegal",
+        "other"
+      ]
+    },
+    "description": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "reviewed",
+        "resolved",
+        "dismissed"
+      ],
+      "default": "pending"
+    },
+    "community_id": {
+      "type": "string"
+    },
+    "moderator_note": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "reporter_id",
+    "target_id",
+    "target_type",
+    "reason"
+  ]
+}

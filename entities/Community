@@ -1,0 +1,100 @@
+{
+  "name": "Community",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Community display name"
+    },
+    "slug": {
+      "type": "string",
+      "description": "URL-friendly identifier"
+    },
+    "description": {
+      "type": "string",
+      "description": "Community description"
+    },
+    "avatar_url": {
+      "type": "string"
+    },
+    "banner_url": {
+      "type": "string"
+    },
+    "owner_id": {
+      "type": "string",
+      "description": "User ID of the owner"
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "anime",
+        "gaming",
+        "fandoms",
+        "roleplay",
+        "art",
+        "music",
+        "books",
+        "movies",
+        "sports",
+        "technology",
+        "science",
+        "lifestyle",
+        "other"
+      ]
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "member_count": {
+      "type": "number",
+      "default": 0
+    },
+    "post_count": {
+      "type": "number",
+      "default": 0
+    },
+    "activity_level": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "trending"
+      ],
+      "default": "low"
+    },
+    "is_private": {
+      "type": "boolean",
+      "default": false
+    },
+    "is_nsfw": {
+      "type": "boolean",
+      "default": false
+    },
+    "accent_color": {
+      "type": "string",
+      "description": "Community accent color hex"
+    }
+  },
+  "required": [
+    "name",
+    "slug"
+  ]
+}
