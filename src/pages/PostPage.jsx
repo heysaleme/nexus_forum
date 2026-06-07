@@ -347,11 +347,42 @@ export default function PostPage() {
             triggerAuthModal("Войдите, чтобы проголосовать.");
             return;
         }
+
+        const pollVotes = post.poll_votes || {};
+
+        if (pollVotes[user.id] !== undefined) {
+            toast({
+                title: "Вы уже голосовали в этом опросе"
+            });
+            return;
+        }
+
         const opts = [...(post.poll_options || [])];
-        opts[optionIndex] = { ...opts[optionIndex], votes: (opts[optionIndex].votes || 0) + 1 };
-        await nexusApi.entities.Post.update(post.id, { poll_options: opts });
-        setPost(prev => ({ ...prev, poll_options: opts }));
-        toast({ title: '✅ Голос учтен!' });
+
+        opts[optionIndex] = {
+            ...opts[optionIndex],
+            votes: (opts[optionIndex].votes || 0) + 1
+        };
+
+        const updatedVotes = {
+            ...pollVotes,
+            [user.id]: optionIndex
+        };
+
+        await nexusApi.entities.Post.update(post.id, {
+            poll_options: opts,
+            poll_votes: updatedVotes
+        });
+
+        setPost(prev => ({
+            ...prev,
+            poll_options: opts,
+            poll_votes: updatedVotes
+        }));
+
+        toast({
+            title: "✅ Голос учтен!"
+        });
     };
 
     const isAuthor = user && post && user.id === post.author_id;

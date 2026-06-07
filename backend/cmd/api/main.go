@@ -58,6 +58,7 @@ func main() {
 		&model.Post{},
 		&model.Comment{},
 		&model.Vote{},
+		&model.PollVote{},
 		&model.SavedPost{},
 		&model.UserFollow{},
 		&model.Notification{},
@@ -170,6 +171,7 @@ func main() {
 			secured.PUT("/posts/:id", handlers.UpdatePost)
 			secured.DELETE("/posts/:id", handlers.DeletePost)
 			secured.POST("/posts/:id/vote", handlers.VotePost)
+			secured.POST("/posts/:id/poll", handlers.VotePoll)
 			secured.POST("/posts/:id/save", handlers.SavePost)
 			secured.POST("/posts/:id/unsave", handlers.UnsavePost)
 			secured.GET("/users/saved", handlers.GetSavedPosts)

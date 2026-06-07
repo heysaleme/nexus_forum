@@ -15,6 +15,7 @@ type PostService interface {
 	List(sortSpec string, limit int) ([]*model.Post, error)
 	Filter(filter map[string]interface{}, sortSpec string, limit int) ([]*model.Post, error)
 	Vote(userID, postID uint, value int) error
+	VotePoll(userID, postID uint, optionIndex int) error
 	SavePost(userID, postID uint) error
 	UnsavePost(userID, postID uint) error
 	GetSavedByUser(userID uint) ([]*model.SavedPost, error)
@@ -224,4 +225,8 @@ func (s *postService) UnsavePost(userID, postID uint) error {
 
 func (s *postService) GetSavedByUser(userID uint) ([]*model.SavedPost, error) {
 	return s.savedRepo.GetByUser(userID)
+}
+
+func (s *postService) VotePoll(userID, postID uint, optionIndex int) error {
+	return nil
 }

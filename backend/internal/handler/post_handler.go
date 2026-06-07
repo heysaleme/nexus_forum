@@ -332,6 +332,42 @@ func (h *Handlers) VotePost(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+func (h *Handlers) VotePoll(c *gin.Context) {
+	uid, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
+	postID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+
+	var body struct {
+		OptionIndex int `json:"option_index"`
+	}
+
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	err := h.PostService.VotePoll(uid, postID, body.OptionIndex)
+
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+	})
+}
+
 func (h *Handlers) SavePost(c *gin.Context) {
 	uid, ok := getUserID(c)
 	if !ok {
