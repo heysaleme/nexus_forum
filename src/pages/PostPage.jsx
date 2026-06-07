@@ -133,7 +133,7 @@ function CommentItem({ comment, depth = 0, currentUser, postId, onReload, canDel
     const handleReply = async () => {
         if (!replyText.trim()) return;
         await nexusApi.entities.Comment.create({
-            post_id: postId,
+            post_id: Number(id),
             author_id: currentUser.id,
             author_username: currentUser.full_name || currentUser.email,
             author_avatar: currentUser.avatar_url,
@@ -436,20 +436,36 @@ export default function PostPage() {
 
     const handleComment = async () => {
         if (!newComment.trim() || !user) return;
-        setSubmittingComment(true);
-        await nexusApi.entities.Comment.create({
-            post_id: id,
-            author_id: user.id,
-            author_username: user.full_name || user.email,
-            author_avatar: user.avatar_url,
-            content: newComment.trim(),
-            score: 0,
-            depth: 0,
-        });
-        await nexusApi.entities.Post.update(id, { comment_count: (post.comment_count || 0) + 1 });
-        setNewComment('');
-        setSubmittingComment(false);
-        loadPost();
+
+        try {
+            setSubmittingComment(true);
+
+            console.log("SEND COMMENT");
+
+            const result = await nexusApi.entities.Comment.create({
+                post_id: Number(postId),
+                author_id: user.id,
+                author_username: user.full_name || user.email,
+                author_avatar: user.avatar_url,
+                content: newComment.trim(),
+                score: 0,
+                depth: 0,
+            });
+
+            console.log("COMMENT RESULT:", result);
+
+            await nexusApi.entities.Post.update(id, {
+                comment_count: (post.comment_count || 0) + 1
+            });
+
+            setNewComment('');
+            loadPost();
+
+        } catch (err) {
+            console.error("COMMENT ERROR:", err);
+        } finally {
+            setSubmittingComment(false);
+        }
     };
 
     const buildCommentTree = (allComments, parentId = null) =>
