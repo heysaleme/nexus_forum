@@ -96,7 +96,7 @@ function CommentItem({ comment, depth = 0, currentUser, postId, onReload, canDel
     const { triggerAuthModal } = useAuth();
     const [showReply, setShowReply] = useState(false);
     const [replyText, setReplyText] = useState('');
-    const [userVote, setUserVote] = useState(null);
+    const [userVote, setUserVote] = useState(comment.user_vote || 0);
     const [score, setScore] = useState(comment.score || 0);
     const [isEditing, setIsEditing] = useState(false);
     const [editText, setEditText] = useState(comment.content || '');
@@ -133,7 +133,7 @@ function CommentItem({ comment, depth = 0, currentUser, postId, onReload, canDel
     const handleReply = async () => {
         if (!replyText.trim()) return;
         await nexusApi.entities.Comment.create({
-            post_id: Number(id),
+            post_id: Number(postId),
             author_id: currentUser.id,
             author_username: currentUser.full_name || currentUser.email,
             author_avatar: currentUser.avatar_url,
@@ -443,7 +443,7 @@ export default function PostPage() {
             console.log("SEND COMMENT");
 
             const result = await nexusApi.entities.Comment.create({
-                post_id: Number(postId),
+                post_id: Number(id),
                 author_id: user.id,
                 author_username: user.full_name || user.email,
                 author_avatar: user.avatar_url,

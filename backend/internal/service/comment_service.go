@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"nexus-forum-backend/internal/model"
 	"nexus-forum-backend/internal/repository"
 )
@@ -12,6 +13,7 @@ type CommentService interface {
 	Delete(userID, commentID uint) error
 	GetByPostID(postID uint) ([]*model.Comment, error)
 	Vote(userID, commentID uint, value int) error
+	GetVote(userID, commentID uint) (*model.Vote, error)
 }
 
 type commentService struct {
@@ -103,7 +105,7 @@ func (s *commentService) Delete(userID, commentID uint) error {
 	if err != nil {
 		return err
 	}
-	
+
 	isAuthorized := false
 	if comment.AuthorID == userID {
 		isAuthorized = true
@@ -158,13 +160,42 @@ func (s *commentService) GetByPostID(postID uint) ([]*model.Comment, error) {
 }
 
 func (s *commentService) Vote(userID, commentID uint, value int) error {
-	if value != 1 && value != -1 {
+
+	fmt.Println("===== COMMENT VOTE SERVICE =====")
+
+	fmt.Println("USER:", userID)
+
+	fmt.Println("COMMENT:", commentID)
+
+	fmt.Println("VALUE:", value)
+
+	if value != 1 && value != -1 && value != 0 {
 		return errors.New("invalid vote value")
 	}
 
 	comment, err := s.repo.GetByID(commentID)
 	if err != nil {
 		return err
+	}
+
+	if value == 0 {
+		existing, err := s.voteRepo.GetVote(userID, "comment", commentID)
+		if err != nil {
+			return nil
+		}
+
+		err = s.voteRepo.DeleteVote(userID, "comment", commentID)
+		if err != nil {
+			return err
+		}
+
+		if existing.Value == 1 {
+			comment.Score--
+		} else {
+			comment.Score++
+		}
+
+		return s.repo.Update(comment)
 	}
 
 	existing, err := s.voteRepo.GetVote(userID, "comment", commentID)
@@ -189,4 +220,8 @@ func (s *commentService) Vote(userID, commentID uint, value int) error {
 	}
 
 	return s.repo.Update(comment)
+}
+
+func (s *commentService) GetVote(userID, commentID uint) (*model.Vote, error) {
+	return s.voteRepo.GetVote(userID, "comment", commentID)
 }

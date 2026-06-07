@@ -13,6 +13,7 @@ type Comment struct {
 	Score     int       `gorm:"default:0" json:"score"`
 	IsDeleted bool      `gorm:"default:false" json:"is_deleted"`
 	CreatedAt time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"created_date"`
+	UserVote  int       `gorm:"-" json:"user_vote"`
 
 	// Helper fields to join for responses
 	AuthorUsername string `gorm:"-" json:"author_username"`

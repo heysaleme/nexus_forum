@@ -4,9 +4,10 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	"nexus-forum-backend/internal/dto"
 	"nexus-forum-backend/internal/model"
+
+	"github.com/gin-gonic/gin"
 )
 
 // ================= Comment Handlers =================
@@ -56,6 +57,18 @@ func (h *Handlers) ListComments(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	userID, authenticated := getOptionalUserID(c, h.AuthService)
+
+	if authenticated {
+		for _, comment := range comments {
+			vote, err := h.CommentService.GetVote(userID, comment.ID)
+
+			if err == nil {
+				comment.UserVote = vote.Value
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, comments)
