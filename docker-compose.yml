@@ -1,0 +1,25 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend/nexus_forum.db:/app/nexus_forum.db
+    environment:
+      - PORT=8080
+      - JWT_SECRET=nexus-super-secret-key-1234567890
+      - DB_TYPE=sqlite
+      - SQLITE_DB=nexus_forum.db
+    restart: always
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: always
