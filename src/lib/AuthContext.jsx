@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { nexusApi } from '@/api/nexusApi';
 
 const AuthContext = createContext();
 
@@ -12,10 +12,19 @@ export const AuthProvider = ({ children }) => {
     const [authChecked, setAuthChecked] = useState(false);
     const [appPublicSettings] = useState({ id: 'local-nexus', public_settings: { auth_required: false } });
 
+    // Auth modal state for guests trying restricted actions
+    const [authModalOpen, setAuthModalOpen] = useState(false);
+    const [authModalMsg, setAuthModalMsg] = useState('');
+
+    const triggerAuthModal = (message) => {
+        setAuthModalMsg(message || 'Для этого действия необходимо войти в аккаунт или зарегистрироваться.');
+        setAuthModalOpen(true);
+    };
+
     const checkUserAuth = async () => {
         setIsLoadingAuth(true);
         try {
-            const currentUser = await base44.auth.me();
+            const currentUser = await nexusApi.auth.me();
             setUser(currentUser);
             setIsAuthenticated(true);
             setAuthError(null);
@@ -40,7 +49,7 @@ export const AuthProvider = ({ children }) => {
     const logout = (shouldRedirect = true) => {
         setUser(null);
         setIsAuthenticated(false);
-        base44.auth.logout(shouldRedirect ? '/' : undefined);
+        nexusApi.auth.logout(shouldRedirect ? '/' : undefined);
     };
 
     const navigateToLogin = () => {
@@ -61,6 +70,10 @@ export const AuthProvider = ({ children }) => {
                 navigateToLogin,
                 checkUserAuth,
                 checkAppState,
+                authModalOpen,
+                setAuthModalOpen,
+                authModalMsg,
+                triggerAuthModal,
             }}
         >
             {children}

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { nexusApi } from '@/api/nexusApi';
 import { useAuth } from '@/lib/AuthContext';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import EmptyState from '@/components/ui/EmptyState';
@@ -36,20 +36,20 @@ export default function Notifications() {
 
     const loadNotifications = async () => {
         setLoading(true);
-        const data = await base44.entities.Notification.filter({ user_id: user.id }, '-created_date', 50);
+        const data = await nexusApi.entities.Notification.filter({ user_id: user.id }, '-created_date', 50);
         setNotifications(data);
         setLoading(false);
     };
 
     const markAllRead = async () => {
         const unread = notifications.filter(n => !n.is_read);
-        await Promise.all(unread.map(n => base44.entities.Notification.update(n.id, { is_read: true })));
+        await Promise.all(unread.map(n => nexusApi.entities.Notification.update(n.id, { is_read: true })));
         setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
     };
 
     const markRead = async (notif) => {
         if (notif.is_read) return;
-        await base44.entities.Notification.update(notif.id, { is_read: true });
+        await nexusApi.entities.Notification.update(notif.id, { is_read: true });
         setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n));
     };
 

@@ -37,7 +37,7 @@ export default function CommunityCard({ community, onJoin, isJoined }) {
                 <Link to={`/community/${community.id}`} className="flex items-end gap-2 mb-2">
                     <img
                         src={community.avatar_url || `https://api.dicebear.com/7.x/shapes/svg?seed=${community.name}`}
-                        className="w-12 h-12 rounded-2xl border-2 border-card object-cover shadow-md flex-shrink-0"
+                        className="w-12 h-12 rounded-xl border-2 border-card object-cover shadow-md flex-shrink-0"
                         alt=""
                     />
                     <div className="pb-0.5 min-w-0">

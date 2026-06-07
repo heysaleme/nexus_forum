@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { nexusApi } from '@/api/nexusApi';
 import { useAuth } from '@/lib/AuthContext';
 import PostCard from '@/components/feed/PostCard';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
@@ -28,9 +28,9 @@ export default function CommunityPage() {
     const loadCommunity = async () => {
         setLoading(true);
         const [communityData, postsData, membersData] = await Promise.all([
-            base44.entities.Community.filter({ id }),
-            base44.entities.Post.filter({ community_id: id, status: 'published' }, '-created_date', 20),
-            base44.entities.CommunityMember.filter({ community_id: id }, null, 50),
+            nexusApi.entities.Community.filter({ id }),
+            nexusApi.entities.Post.filter({ community_id: id, status: 'published' }, '-created_date', 20),
+            nexusApi.entities.CommunityMember.filter({ community_id: id }, null, 50),
         ]);
         if (communityData[0]) setCommunity(communityData[0]);
         setPosts(postsData);
@@ -47,12 +47,12 @@ export default function CommunityPage() {
         if (!user) { toast({ title: 'Войдите, чтобы вступить', variant: 'destructive' }); return; }
         if (isJoined) {
             const myMember = members.find(m => m.user_id === user.id);
-            if (myMember) await base44.entities.CommunityMember.delete(myMember.id);
+            if (myMember) await nexusApi.entities.CommunityMember.delete(myMember.id);
             setIsJoined(false);
             setMemberRole(null);
             toast({ title: `Вы покинули ${community.name}` });
         } else {
-            await base44.entities.CommunityMember.create({ user_id: user.id, community_id: id, role: 'member' });
+            await nexusApi.entities.CommunityMember.create({ user_id: user.id, community_id: id, role: 'member' });
             setIsJoined(true);
             setMemberRole('member');
             toast({ title: `Добро пожаловать в ${community.name}! 🎉` });
@@ -60,9 +60,21 @@ export default function CommunityPage() {
         loadCommunity();
     };
 
+    const handleDeleteCommunity = async () => {
+        if (!window.confirm('Вы уверены, что хотите удалить это сообщество? Все связанные публикации будут также удалены!')) return;
+        try {
+            await nexusApi.entities.Community.delete(community.id);
+            toast({ title: '🗑️ Сообщество удалено' });
+            navigate('/communities');
+        } catch (err) {
+            toast({ title: 'Не удалось удалить сообщество', variant: 'destructive' });
+        }
+    };
+
     if (loading) return <LoadingSpinner size="lg" className="py-32" />;
     if (!community) return <EmptyState icon={Info} title="Сообщество не найдено" />;
 
+    const canDeleteCommunity = user && (community.owner_id === user.id || user.role === 'admin' || user.role === 'moderator');
     const pinnedPosts = posts.filter(p => p.is_pinned);
     const regularPosts = posts.filter(p => !p.is_pinned);
 
@@ -91,6 +103,16 @@ export default function CommunityPage() {
 
                 {/* Join button — top right corner */}
                 <div className="absolute top-3 right-3 flex gap-2">
+                    {canDeleteCommunity && (
+                        <Button
+                            onClick={handleDeleteCommunity}
+                            size="sm"
+                            variant="destructive"
+                            className="rounded-xl h-9 px-3 text-sm font-bold shadow bg-destructive text-white hover:bg-destructive/90"
+                        >
+                            Удалить
+                        </Button>
+                    )}
                     <Button
                         onClick={handleJoin}
                         size="sm"

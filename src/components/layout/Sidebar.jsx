@@ -3,6 +3,7 @@ import { Home, Compass, PlusCircle, MessageCircle, User, Bell, Settings, Shield,
 import { motion } from 'framer-motion';
 import { Badge } from '@/components/ui/badge';
 import useUnreadCounts from '@/hooks/useUnreadCounts';
+import { useAuth } from '@/lib/AuthContext';
 
 const navItems = [
     { icon: Home, label: 'Лента', path: '/' },
@@ -16,6 +17,7 @@ const navItems = [
 
 export default function Sidebar({ user }) {
     const location = useLocation();
+    const { triggerAuthModal } = useAuth();
     const { notifications, chats } = useUnreadCounts(user);
 
     return (
@@ -37,8 +39,15 @@ export default function Sidebar({ user }) {
                         : path === '/chats'
                             ? chats
                             : badge;
+                    const requiresAuth = ['/create', '/chats', '/notifications', '/profile', '/settings'].includes(path);
+                    const handleClick = (e) => {
+                        if (requiresAuth && !user) {
+                            e.preventDefault();
+                            triggerAuthModal(`Для доступа к разделу "${label}" необходимо войти в аккаунт или зарегистрироваться.`);
+                        }
+                    };
                     return (
-                        <Link key={path} to={path}>
+                        <Link key={path} to={path} onClick={handleClick}>
                             <motion.div
                                 whileHover={{ x: 2 }}
                                 whileTap={{ scale: 0.98 }}
@@ -84,7 +93,7 @@ export default function Sidebar({ user }) {
                         />
                         <div className="flex-1 min-w-0">
                             <p className="text-sm font-semibold truncate">{user.full_name || user.username}</p>
-                            <p className="text-xs text-muted-foreground">Ур. {user.level || 1} · {user.karma || 0} karma</p>
+                            <p className="text-xs text-muted-foreground">Ур. {user.level || 1} · {user.xp || 0} XP</p>
                         </div>
                     </div>
                 </Link>

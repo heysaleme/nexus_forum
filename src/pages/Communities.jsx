@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { nexusApi } from '@/api/nexusApi';
 import { useAuth } from '@/lib/AuthContext';
 import CommunityCard from '@/components/community/CommunityCard';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
@@ -45,13 +45,13 @@ export default function Communities() {
 
     const loadCommunities = async () => {
         setLoading(true);
-        const data = await base44.entities.Community.list('-member_count', 50);
+        const data = await nexusApi.entities.Community.list('-member_count', 50);
         setCommunities(data);
         setLoading(false);
     };
 
     const loadMemberships = async () => {
-        const data = await base44.entities.CommunityMember.filter({ user_id: user.id });
+        const data = await nexusApi.entities.CommunityMember.filter({ user_id: user.id });
         setMemberships(new Set(data.map(m => m.community_id)));
     };
 
@@ -61,12 +61,12 @@ export default function Communities() {
             return;
         }
         if (memberships.has(community.id)) {
-            const members = await base44.entities.CommunityMember.filter({ user_id: user.id, community_id: community.id });
-            if (members[0]) await base44.entities.CommunityMember.delete(members[0].id);
+            const members = await nexusApi.entities.CommunityMember.filter({ user_id: user.id, community_id: community.id });
+            if (members[0]) await nexusApi.entities.CommunityMember.delete(members[0].id);
             setMemberships(prev => { const s = new Set(prev); s.delete(community.id); return s; });
             toast({ title: `Вы покинули ${community.name}` });
         } else {
-            await base44.entities.CommunityMember.create({ user_id: user.id, community_id: community.id, role: 'member' });
+            await nexusApi.entities.CommunityMember.create({ user_id: user.id, community_id: community.id, role: 'member' });
             setMemberships(prev => new Set([...prev, community.id]));
             toast({ title: `Вы вступили в ${community.name}! 🎉` });
         }

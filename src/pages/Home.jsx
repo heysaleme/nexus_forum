@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { nexusApi } from '@/api/nexusApi';
 import { useAuth } from '@/lib/AuthContext';
 import PostCard from '@/components/feed/PostCard';
 import SortBar from '@/components/feed/SortBar';
@@ -10,34 +10,60 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
 
+const CATEGORIES = [
+    { id: 'all', label: 'Все интересы' },
+    { id: 'anime', label: 'Аниме' },
+    { id: 'gaming', label: 'Игры' },
+    { id: 'fandoms', label: 'Фандомы' },
+    { id: 'roleplay', label: 'РП' },
+    { id: 'art', label: 'Искусство' },
+    { id: 'music', label: 'Музыка' },
+    { id: 'books', label: 'Книги' },
+    { id: 'movies', label: 'Кино' },
+    { id: 'technology', label: 'Технологии' },
+    { id: 'lifestyle', label: 'Лайфстайл' },
+];
+
 export default function Home() {
     const { user } = useAuth();
     const [posts, setPosts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [sort, setSort] = useState('hot');
     const [communities, setCommunities] = useState([]);
+    const [allCommunities, setAllCommunities] = useState([]);
+    const [activeCategory, setActiveCategory] = useState('all');
 
     useEffect(() => {
         loadData();
-    }, [sort, user]);
+    }, [sort, user, activeCategory]);
 
     const loadData = async () => {
         setLoading(true);
 
-        const [allPosts, communitiesData] = await Promise.all([
-            base44.entities.Post.filter({ status: 'published' }, '-created_date', 40),
-            base44.entities.Community.list('-member_count', 5),
+        const [allPosts, communitiesData, popularComm] = await Promise.all([
+            nexusApi.entities.Post.filter({ status: 'published' }, '-created_date', 50),
+            nexusApi.entities.Community.list('-name', 100).catch(() => []),
+            nexusApi.entities.Community.list('-member_count', 5).catch(() => []),
         ]);
 
-        setCommunities(communitiesData);
+        setCommunities(popularComm);
+        setAllCommunities(communitiesData);
 
         let filtered = allPosts;
 
+        // Filter by category
+        if (activeCategory !== 'all') {
+            filtered = filtered.filter(p => {
+                const comm = communitiesData.find(c => c.id === p.community_id);
+                return comm?.category === activeCategory;
+            });
+        }
+
         // Filter by followed communities
         if (sort === 'following' && user) {
-            const memberships = await base44.entities.CommunityMember.filter({ user_id: user.id });
+            const memberships = await nexusApi.entities.CommunityMember.filter({ user_id: user.id });
             const joinedIds = new Set(memberships.map(m => m.community_id));
-            filtered = allPosts.filter(p => joinedIds.has(p.community_id));
+            filtered = filtered.filter(p => joinedIds.has(p.community_id));
         } else if (sort === 'following' && !user) {
             filtered = [];
         }
@@ -94,6 +120,23 @@ export default function Home() {
                             </div>
                         </motion.div>
                     )}
+
+                    {/* Categories */}
+                    <div className="flex gap-2 overflow-x-auto scrollbar-hide mb-4 pb-1">
+                        {CATEGORIES.map(({ id, label }) => (
+                            <motion.button
+                                key={id}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => setActiveCategory(id)}
+                                className={`px-3.5 py-1.5 rounded-xl text-sm font-semibold whitespace-nowrap flex-shrink-0 transition-all ${activeCategory === id
+                                    ? 'nexus-gradient text-white shadow-nexus'
+                                    : 'bg-muted/60 text-muted-foreground hover:bg-muted'
+                                    }`}
+                            >
+                                {label}
+                            </motion.button>
+                        ))}
+                    </div>
 
                     {/* Sort bar */}
                     <div className="mb-3">

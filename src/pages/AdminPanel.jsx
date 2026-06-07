@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { nexusApi } from '@/api/nexusApi';
 import { useAuth } from '@/lib/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
@@ -32,10 +32,10 @@ export default function AdminPanel() {
     const loadData = async () => {
         setLoading(true);
         const [usersData, communitiesData, reportsData, postsData] = await Promise.all([
-            base44.entities.User.list('-created_date', 50),
-            base44.entities.Community.list('-member_count', 30),
-            base44.entities.Report.list('-created_date', 50),
-            base44.entities.Post.list('-created_date', 10),
+            nexusApi.entities.User.list('-created_date', 50),
+            nexusApi.entities.Community.list('-member_count', 30),
+            nexusApi.entities.Report.list('-created_date', 50),
+            nexusApi.entities.Post.list('-created_date', 10),
         ]);
         setUsers(usersData);
         setCommunities(communitiesData);
@@ -45,27 +45,38 @@ export default function AdminPanel() {
     };
 
     const handleBanUser = async (u) => {
-        await base44.entities.User.update(u.id, { is_banned: !u.is_banned });
+        await nexusApi.entities.User.update(u.id, { is_banned: !u.is_banned });
         toast({ title: u.is_banned ? '✅ Пользователь разблокирован' : '🚫 Пользователь заблокирован' });
         loadData();
     };
 
     const handleChangeRole = async (u, role) => {
-        await base44.entities.User.update(u.id, { role });
+        await nexusApi.entities.User.update(u.id, { role });
         toast({ title: `Роль изменена на ${role}` });
         loadData();
     };
 
     const handleReport = async (report, status) => {
-        await base44.entities.Report.update(report.id, { status });
+        await nexusApi.entities.Report.update(report.id, { status });
         toast({ title: `Жалоба помечена как "${status}"` });
         loadData();
     };
 
     const handleDeletePost = async (postId) => {
-        await base44.entities.Post.update(postId, { status: 'removed' });
+        await nexusApi.entities.Post.update(postId, { status: 'removed' });
         toast({ title: '🗑️ Публикация удалена' });
         loadData();
+    };
+
+    const handleDeleteCommunity = async (commId) => {
+        if (!window.confirm('Вы уверены, что хотите удалить это сообщество? Все публикации сообщества будут удалены!')) return;
+        try {
+            await nexusApi.entities.Community.delete(commId);
+            toast({ title: '🗑️ Сообщество удалено' });
+            loadData();
+        } catch (err) {
+            toast({ title: 'Не удалось удалить сообщество', variant: 'destructive' });
+        }
     };
 
     const stats = {
@@ -252,7 +263,7 @@ export default function AdminPanel() {
                                         </Badge>
                                     </div>
                                 </div>
-                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 rounded-lg text-destructive hover:bg-destructive/10">
+                                <Button variant="ghost" size="sm" onClick={() => handleDeleteCommunity(c.id)} className="h-7 w-7 p-0 rounded-lg text-destructive hover:bg-destructive/10">
                                     <Trash2 className="w-4 h-4" />
                                 </Button>
                             </div>

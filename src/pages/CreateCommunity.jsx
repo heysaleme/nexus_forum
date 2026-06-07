@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { nexusApi } from '@/api/nexusApi';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,7 +39,7 @@ export default function CreateCommunity() {
         const file = e.target.files[0];
         if (!file) return;
         setUploadingAvatar(true);
-        const { file_url } = await base44.integrations.Core.UploadFile({ file });
+        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file });
         setAvatarUrl(file_url);
         setUploadingAvatar(false);
     };
@@ -48,7 +48,7 @@ export default function CreateCommunity() {
         const file = e.target.files[0];
         if (!file) return;
         setUploadingBanner(true);
-        const { file_url } = await base44.integrations.Core.UploadFile({ file });
+        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file });
         setBannerUrl(file_url);
         setUploadingBanner(false);
     };
@@ -68,7 +68,7 @@ export default function CreateCommunity() {
         setSubmitting(true);
         const slug = name.toLowerCase().replace(/[^a-zа-яё0-9]/gi, '-').replace(/-+/g, '-');
 
-        const community = await base44.entities.Community.create({
+        const community = await nexusApi.entities.Community.create({
             name: name.trim(),
             slug,
             description: description.trim(),
@@ -85,7 +85,7 @@ export default function CreateCommunity() {
             activity_level: 'low',
         });
 
-        await base44.entities.CommunityMember.create({
+        await nexusApi.entities.CommunityMember.create({
             user_id: user.id,
             community_id: community.id,
             role: 'owner',

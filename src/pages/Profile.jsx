@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { nexusApi } from '@/api/nexusApi';
 import { useAuth } from '@/lib/AuthContext';
 import PostCard from '@/components/feed/PostCard';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import EmptyState from '@/components/ui/EmptyState';
+import FollowersModal from '@/components/ui/FollowersModal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -20,7 +21,6 @@ const ACHIEVEMENT_ICONS = {
     first_comment: '💬',
     rising_star: '⭐',
     community_builder: '🏗️',
-    wiki_master: '📚',
     social_butterfly: '🦋',
     veteran: '🎖️',
     top_contributor: '🏆',
@@ -39,7 +39,7 @@ const THEME_GRADIENTS = {
 
 export default function Profile() {
     const { id } = useParams();
-    const { user: currentUser } = useAuth();
+    const { user: currentUser, logout } = useAuth();
     const { toast } = useToast();
     const navigate = useNavigate();
 
@@ -52,6 +52,9 @@ export default function Profile() {
     const [achievements, setAchievements] = useState([]);
     const [isFollowing, setIsFollowing] = useState(false);
     const [loading, setLoading] = useState(true);
+    // Followers modal state
+    const [followersModalOpen, setFollowersModalOpen] = useState(false);
+    const [followersModalTab, setFollowersModalTab] = useState('followers');
 
     useEffect(() => {
         if (targetId) loadProfile();
@@ -60,9 +63,9 @@ export default function Profile() {
     const loadProfile = async () => {
         setLoading(true);
         const [users, userPosts, userAchievements] = await Promise.all([
-            base44.entities.User.filter({ id: targetId }),
-            base44.entities.Post.filter({ author_id: targetId, status: 'published' }, '-created_date', 10),
-            base44.entities.Achievement.filter({ user_id: targetId }),
+            nexusApi.entities.User.filter({ id: targetId }),
+            nexusApi.entities.Post.filter({ author_id: targetId, status: 'published' }, '-created_date', 10),
+            nexusApi.entities.Achievement.filter({ user_id: targetId }),
         ]);
 
         if (users[0]) setProfileUser(users[0]);
@@ -71,12 +74,12 @@ export default function Profile() {
         setAchievements(userAchievements);
 
         if (!isOwn && currentUser) {
-            const follows = await base44.entities.UserFollow.filter({ follower_id: currentUser.id, following_id: targetId });
+            const follows = await nexusApi.entities.UserFollow.filter({ follower_id: currentUser.id, following_id: targetId });
             setIsFollowing(follows.length > 0);
         }
 
         if (isOwn && currentUser) {
-            const saved = await base44.entities.SavedPost.filter({ user_id: currentUser.id });
+            const saved = await nexusApi.entities.SavedPost.filter({ user_id: currentUser.id });
             setSavedPosts(saved);
         }
 
@@ -86,16 +89,27 @@ export default function Profile() {
     const handleFollow = async () => {
         if (!currentUser) { navigate('/login'); return; }
         if (isFollowing) {
-            const follows = await base44.entities.UserFollow.filter({ follower_id: currentUser.id, following_id: targetId });
-            if (follows[0]) await base44.entities.UserFollow.delete(follows[0].id);
+            await nexusApi.entities.UserFollow.delete(targetId);
             setIsFollowing(false);
-            toast({ title: 'Вы отписались' });
+            setProfileUser(prev => prev ? { ...prev, followers_count: Math.max(0, (prev.followers_count || 1) - 1) } : prev);
+            toast({ title: 'Отписка оформлена' });
         } else {
-            await base44.entities.UserFollow.create({ follower_id: currentUser.id, following_id: targetId });
+            await nexusApi.entities.UserFollow.create({ follower_id: currentUser.id, following_id: targetId });
             setIsFollowing(true);
+            setProfileUser(prev => prev ? { ...prev, followers_count: (prev.followers_count || 0) + 1 } : prev);
             toast({ title: '✅ Вы подписались!' });
         }
-        loadProfile();
+    };
+
+    const handleBanUser = async () => {
+        try {
+            const nextBanned = !displayUser.is_banned;
+            await nexusApi.entities.User.update(displayUser.id, { is_banned: nextBanned });
+            setProfileUser(prev => ({ ...prev, is_banned: nextBanned }));
+            toast({ title: nextBanned ? '🚫 Пользователь заблокирован' : '✅ Пользователь разблокирован' });
+        } catch (err) {
+            toast({ title: 'Не удалось обновить блокировку', variant: 'destructive' });
+        }
     };
 
     if (loading) return <LoadingSpinner size="lg" className="py-32" />;
@@ -105,6 +119,11 @@ export default function Profile() {
     const level = displayUser?.level || 1;
     const theme = displayUser?.profile_theme || 'default';
     const levelColor = LEVEL_COLORS[Math.min(level - 1, LEVEL_COLORS.length - 1)];
+
+    // Isolate slash-containing classes from ternary operators in JSX to avoid esbuild parser issues
+    const followBtnClass = isFollowing
+        ? 'bg-muted text-muted-foreground hover:bg-destructive/10 hover:text-destructive'
+        : 'nexus-gradient border-0 text-white shadow-nexus';
 
     return (
         <div>
@@ -116,9 +135,16 @@ export default function Profile() {
                     <div className="w-full h-full nexus-gradient opacity-30" />
                 )}
                 <div className="absolute inset-0 bg-gradient-to-t from-background/40 to-transparent" />
+                {isOwn && (
+                    <Link to="/settings" className="absolute top-3 right-3 z-10 md:hidden">
+                        <Button size="icon" variant="ghost" className="w-8 h-8 rounded-xl bg-background/60 hover:bg-background/80 backdrop-blur-sm border border-border/20 text-foreground flex items-center justify-center">
+                            <Settings className="w-4 h-4" />
+                        </Button>
+                    </Link>
+                )}
             </div>
 
-            {/* Avatar — centered, round, on top of banner */}
+            {/* Avatar centered on top of banner */}
             <div className="flex flex-col items-center -mt-14 px-4 pb-3 border-b border-border/30">
                 <div className="relative mb-2">
                     <img
@@ -132,10 +158,7 @@ export default function Profile() {
                 <h1 className="text-lg font-display font-black text-foreground text-center">
                     {displayUser?.full_name || displayUser?.username || 'Пользователь'}
                 </h1>
-                {/* {displayUser?.title && (
-                    <p className="text-xs font-semibold text-primary mb-1">{displayUser.title}</p>
-                )} */}
-                <div className="w-[7.5rem] sm:w-[8.5rem] mb-2">
+                <div className="w-32 sm:w-36 mb-2">
                     <div className="flex items-center justify-between mb-1">
                         <span className="text-[10px] font-bold text-foreground">Уровень {level}</span>
                         <span className="text-[10px] text-muted-foreground">{displayUser?.xp || 0} XP</span>
@@ -153,126 +176,182 @@ export default function Profile() {
                     <p className="text-xs text-muted-foreground text-center max-w-xs mb-2">{displayUser.bio}</p>
                 )}
 
-                {/* Action button — settings only on mobile for own profile */}
+                {/* Action buttons */}
                 {isOwn ? (
-                    <Link to="/settings" className="md:hidden">
-                        <Button variant="outline" size="sm" className="rounded gap-1.5 text-xs h-8 mt-1">
-                            <Settings className="w-3.5 h-3.5" />
-                            Настройки
-                        </Button>
-                    </Link>
+                    <div className="flex gap-2 mt-2 flex-wrap justify-center">
+                        <Link to="/settings">
+                            <Button size="sm" variant="outline" className="rounded-xl h-8 text-xs font-bold gap-1.5">
+                                <Settings className="w-3.5 h-3.5" />
+                                Редактировать профиль
+                            </Button>
+                        </Link>
+                    </div>
                 ) : (
-                    <Button
-                        onClick={handleFollow}
-                        size="sm"
-                        className={`rounded-xl h-8 gap-1.5 text-xs font-bold mt-1 ${isFollowing ? 'bg-muted text-muted-foreground hover:bg-destructive/10 hover:text-destructive' : 'nexus-gradient border-0 text-white shadow-nexus'
-                            }`}
-                    >
-                        {isFollowing ? <><UserMinus className="w-3.5 h-3.5" />Отписаться</> : <><UserPlus className="w-3.5 h-3.5" />Подписаться</>}
-                    </Button>
+                    <div className="flex gap-2 mt-2 flex-wrap justify-center">
+                        <Button
+                            onClick={handleFollow}
+                            size="sm"
+                            className={`rounded-xl h-8 gap-1.5 text-xs font-bold ${followBtnClass}`}
+                        >
+                            {isFollowing ? (
+                                <><UserMinus className="w-3.5 h-3.5" />Отписаться</>
+                            ) : (
+                                <><UserPlus className="w-3.5 h-3.5" />Подписаться</>
+                            )}
+                        </Button>
+                        <Link to={`/chats?userId=${displayUser.id}`}>
+                            <Button size="sm" variant="outline" className="rounded-xl h-8 text-xs font-bold gap-1.5">
+                                Сообщение
+                            </Button>
+                        </Link>
+                        {currentUser && (currentUser.role === 'admin' || currentUser.role === 'moderator') && (
+                            <Button
+                                onClick={handleBanUser}
+                                size="sm"
+                                variant={displayUser.is_banned ? 'outline' : 'destructive'}
+                                className="rounded-xl h-8 text-xs font-bold"
+                            >
+                                {displayUser.is_banned ? 'Разблокировать' : 'Заблокировать'}
+                            </Button>
+                        )}
+                    </div>
                 )}
             </div>
 
-            {/* Stats — three equal columns separated by thin dividers */}
+            {/* Stats — three equal columns with clickable followers/following */}
             <div className="flex border-b border-border/30">
                 <div className="flex-1 flex flex-col items-center py-3 border-r border-border/30">
-                    <span className="text-sm font-black text-foreground">{displayUser?.karma || 0}</span>
-                    <span className="text-[10px] text-muted-foreground flex items-center gap-0.5"><Star className="w-2.5 h-2.5 text-yellow-500" />karma</span>
+                    <span className="text-sm font-black text-foreground">{displayUser?.xp || 0}</span>
+                    <span className="text-[10px] text-muted-foreground flex items-center gap-0.5"><Star className="w-2.5 h-2.5 text-yellow-500" />XP</span>
                 </div>
-                <div className="flex-1 flex flex-col items-center py-3 border-r border-border/30">
+                <button
+                    onClick={() => {
+                        if (!displayUser.is_private || isOwn) {
+                            setFollowersModalTab('followers');
+                            setFollowersModalOpen(true);
+                        }
+                    }}
+                    className="flex-1 flex flex-col items-center py-3 border-r border-border/30 hover:bg-muted/30 transition-colors"
+                    disabled={displayUser.is_private && !isOwn}
+                >
                     <span className="text-sm font-black text-foreground">{displayUser?.followers_count || 0}</span>
                     <span className="text-[10px] text-muted-foreground">подписчиков</span>
-                </div>
-                <div className="flex-1 flex flex-col items-center py-3">
+                </button>
+                <button
+                    onClick={() => {
+                        if (!displayUser.is_private || isOwn) {
+                            setFollowersModalTab('following');
+                            setFollowersModalOpen(true);
+                        }
+                    }}
+                    className="flex-1 flex flex-col items-center py-3 hover:bg-muted/30 transition-colors"
+                    disabled={displayUser.is_private && !isOwn}
+                >
                     <span className="text-sm font-black text-foreground">{displayUser?.following_count || 0}</span>
                     <span className="text-[10px] text-muted-foreground">подписок</span>
-                </div>
+                </button>
             </div>
 
-            {/* Tabs */}
-            <div className="px-4 pt-3">
-                <Tabs defaultValue="posts">
-                    <TabsList className="bg-muted/50 rounded-xl p-1 mb-3 w-full">
-                        <TabsTrigger value="posts" className="rounded-lg text-xs gap-1.5 flex-1">
-                            <FileText className="w-3.5 h-3.5" />Посты ({posts.length})
-                        </TabsTrigger>
-                        {isOwn && (
-                            <TabsTrigger value="saved" className="rounded-lg text-xs gap-1.5 flex-1">
-                                <Bookmark className="w-3.5 h-3.5" />Сохранённые
+            {/* Followers modal */}
+            <FollowersModal
+                open={followersModalOpen}
+                onClose={() => setFollowersModalOpen(false)}
+                userId={displayUser?.id}
+                defaultTab={followersModalTab}
+            />
+
+            {/* Tabs or Private Lock */}
+            {displayUser.is_private && !isOwn && !isFollowing ? (
+                <div className="flex flex-col items-center justify-center py-20 px-4 text-center my-6">
+                    <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4 text-muted-foreground text-2xl border border-border">
+                        🔒
+                    </div>
+                    <h3 className="text-base font-bold text-foreground mb-1">Это приватный аккаунт</h3>
+                    <p className="text-xs text-muted-foreground max-w-xs leading-relaxed">
+                        Подпишитесь на этого пользователя, чтобы видеть его публикации и достижения.
+                    </p>
+                </div>
+            ) : (
+                <div className="px-4 pt-3">
+                    <Tabs defaultValue="posts">
+                        <TabsList className="bg-muted/50 rounded-xl p-1 mb-3 w-full">
+                            <TabsTrigger value="posts" className="rounded-lg text-xs gap-1.5 flex-1">
+                                <FileText className="w-3.5 h-3.5" />Посты ({posts.length})
                             </TabsTrigger>
-                        )}
-                        <TabsTrigger value="achievements" className="rounded-lg text-xs gap-1.5 flex-1">
-                            <Trophy className="w-3.5 h-3.5" />Достижения
-                        </TabsTrigger>
-                    </TabsList>
+                            {isOwn && (
+                                <TabsTrigger value="saved" className="rounded-lg text-xs gap-1.5 flex-1">
+                                    <Bookmark className="w-3.5 h-3.5" />Сохранённые
+                                </TabsTrigger>
+                            )}
+                            <TabsTrigger value="achievements" className="rounded-lg text-xs gap-1.5 flex-1">
+                                <Trophy className="w-3.5 h-3.5" />Достижения
+                            </TabsTrigger>
+                        </TabsList>
 
-                    <TabsContent value="posts">
-                        {posts.length === 0 ? (
-                            <EmptyState icon={FileText} title="Публикаций пока нет" />
-                        ) : (
-                            <div className="nexus-feed-shell">
-                                {posts.map(post => <PostCard key={post.id} post={post} currentUser={currentUser} />)}
-                            </div>
-                        )}
-                    </TabsContent>
-
-                    {isOwn && (
-                        <TabsContent value="saved">
-                            {savedPosts.length === 0 ? (
-                                <EmptyState icon={Bookmark} title="Нет сохранённых постов" />
+                        <TabsContent value="posts">
+                            {posts.length === 0 ? (
+                                <EmptyState icon={FileText} title="Публикаций пока нет" />
                             ) : (
-                                <div className="space-y-px bg-card rounded-2xl overflow-hidden border border-border/40">
-                                    {savedPosts.map((s, i) => (
-                                        <Link key={s.id} to={`/post/${s.post_id}`}>
-                                            <div className={`flex items-center gap-3 p-3 hover:bg-muted/30 transition-colors ${i > 0 ? 'border-t border-border/30' : ''}`}>
-                                                <Bookmark className="w-4 h-4 text-primary flex-shrink-0" />
-                                                <div>
-                                                    <p className="text-sm font-semibold line-clamp-1">{s.post_title}</p>
-                                                    <p className="text-xs text-muted-foreground">{s.post_community}</p>
+                                <div className="nexus-feed-shell">
+                                    {posts.map(post => <PostCard key={post.id} post={post} currentUser={currentUser} />)}
+                                </div>
+                            )}
+                        </TabsContent>
+
+                        {isOwn && (
+                            <TabsContent value="saved">
+                                {savedPosts.length === 0 ? (
+                                    <EmptyState icon={Bookmark} title="Нет сохранённых постов" />
+                                ) : (
+                                    <div className="space-y-px bg-card rounded-2xl overflow-hidden border border-border/40">
+                                        {savedPosts.map((s, i) => (
+                                            <Link key={s.id} to={`/post/${s.post_id}`}>
+                                                <div className={['flex items-center gap-3 p-3 hover:bg-muted/30 transition-colors', i !== 0 ? 'border-t border-border/30' : ''].join(' ')}>
+                                                    <Bookmark className="w-4 h-4 text-primary flex-shrink-0" />
+                                                    <div>
+                                                        <p className="text-sm font-semibold line-clamp-1">{s.post_title}</p>
+                                                        <p className="text-xs text-muted-foreground">{s.post_community}</p>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        </Link>
+                                            </Link>
+                                        ))}
+                                    </div>
+                                )}
+                            </TabsContent>
+                        )}
+
+                        <TabsContent value="achievements">
+                            <div className="nexus-card p-4 mb-3">
+                                <p className="text-sm font-bold mb-2">Как получать XP и достижения</p>
+                                <div className="space-y-1 text-xs text-muted-foreground">
+                                    <p>Пост: +20 XP.</p>
+                                    <p>Комментарий: +8 XP.</p>
+                                    <p>Создание сообщества: +30 XP.</p>
+                                    <p>Подписка на пользователя: +4 XP.</p>
+                                </div>
+                            </div>
+                            {achievements.length === 0 ? (
+                                <EmptyState icon={Trophy} title="Достижений пока нет" description="Публикуй посты и комментируй для получения наград!" />
+                            ) : (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                    {achievements.map(a => (
+                                        <motion.div
+                                            key={a.id}
+                                            initial={{ opacity: 0, scale: 0.9 }}
+                                            animate={{ opacity: 1, scale: 1 }}
+                                            className="nexus-card p-4 text-center"
+                                        >
+                                            <div className="text-3xl mb-2">{ACHIEVEMENT_ICONS[a.achievement_name] || '🏅'}</div>
+                                            <p className="text-xs font-bold text-foreground mb-0.5">{a.achievement_description || a.achievement_name}</p>
+                                            <Badge className={`text-[9px] border-0 ${a.tier === 'platinum' ? 'bg-cyan-100 text-cyan-700' : a.tier === 'gold' ? 'bg-yellow-100 text-yellow-700' : a.tier === 'silver' ? 'bg-gray-100 text-gray-600' : 'bg-orange-100 text-orange-700'}`}>{a.tier}</Badge>
+                                        </motion.div>
                                     ))}
                                 </div>
                             )}
                         </TabsContent>
-                    )}
-
-                    <TabsContent value="achievements">
-                        <div className="nexus-card p-4 mb-3">
-                            <p className="text-sm font-bold mb-2">Как получать XP и достижения</p>
-                            <div className="space-y-1 text-xs text-muted-foreground">
-                                <p>Пост: `+20 XP` и `+5 karma`.</p>
-                                <p>Комментарий: `+8 XP` и `+2 karma`.</p>
-                                <p>Создание сообщества: `+30 XP` и `+10 karma`.</p>
-                                <p>Подписка на пользователя: `+4 XP` и `+1 karma`.</p>
-                            </div>
-                        </div>
-                        {achievements.length === 0 ? (
-                            <EmptyState icon={Trophy} title="Достижений пока нет" description="Публикуй посты и комментируй для получения наград!" />
-                        ) : (
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                                {achievements.map(a => (
-                                    <motion.div
-                                        key={a.id}
-                                        initial={{ opacity: 0, scale: 0.9 }}
-                                        animate={{ opacity: 1, scale: 1 }}
-                                        className="nexus-card p-4 text-center"
-                                    >
-                                        <div className="text-3xl mb-2">{ACHIEVEMENT_ICONS[a.achievement_name] || '🏅'}</div>
-                                        <p className="text-xs font-bold text-foreground mb-0.5">{a.achievement_description || a.achievement_name}</p>
-                                        <Badge className={`text-[9px] border-0 ${a.tier === 'platinum' ? 'bg-cyan-100 text-cyan-700' :
-                                            a.tier === 'gold' ? 'bg-yellow-100 text-yellow-700' :
-                                                a.tier === 'silver' ? 'bg-gray-100 text-gray-600' :
-                                                    'bg-orange-100 text-orange-700'
-                                            }`}>{a.tier}</Badge>
-                                    </motion.div>
-                                ))}
-                            </div>
-                        )}
-                    </TabsContent>
-                </Tabs>
-            </div>
+                    </Tabs>
+                </div>
+            )}
         </div>
     );
 }

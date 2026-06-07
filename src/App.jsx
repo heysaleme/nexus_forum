@@ -22,10 +22,31 @@ import Chats from '@/pages/Chats';
 import Search from '@/pages/Search';
 import Settings from '@/pages/Settings';
 import AdminPanel from '@/pages/AdminPanel';
-import WikiPage from '@/pages/WikiPage';
+import Login from '@/pages/Login';
+import Register from '@/pages/Register';
+import ForgotPassword from '@/pages/ForgotPassword';
+import ResetPassword from '@/pages/ResetPassword';
+
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 const AuthenticatedApp = () => {
-    const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
+    const { 
+        isLoadingAuth, 
+        isLoadingPublicSettings, 
+        authError, 
+        navigateToLogin,
+        authModalOpen,
+        setAuthModalOpen,
+        authModalMsg
+    } = useAuth();
 
     if (isLoadingPublicSettings || isLoadingAuth) {
         return (
@@ -50,26 +71,48 @@ const AuthenticatedApp = () => {
     }
 
     return (
-        <Routes>
-            <Route element={<AppLayout />}>
-                <Route path="/" element={<Home />} />
-                <Route path="/communities" element={<Communities />} />
-                <Route path="/community/:id" element={<CommunityPage />} />
-                <Route path="/create" element={<CreatePost />} />
-                <Route path="/create-community" element={<CreateCommunity />} />
-                <Route path="/post/:id" element={<PostPage />} />
-                <Route path="/profile" element={<Profile />} />
-                <Route path="/user/:id" element={<Profile />} />
-                <Route path="/notifications" element={<Notifications />} />
-                <Route path="/chats" element={<Chats />} />
-                <Route path="/search" element={<Search />} />
-                <Route path="/settings" element={<Settings />} />
-                <Route path="/admin" element={<AdminPanel />} />
-                <Route path="/wiki" element={<WikiPage />} />
-                <Route path="/wiki/:id" element={<WikiPage />} />
-            </Route>
-            <Route path="*" element={<PageNotFound />} />
-        </Routes>
+        <>
+            <Routes>
+                <Route element={<AppLayout />}>
+                    <Route path="/" element={<Home />} />
+                    <Route path="/communities" element={<Communities />} />
+                    <Route path="/community/:id" element={<CommunityPage />} />
+                    <Route path="/create" element={<CreatePost />} />
+                    <Route path="/create-community" element={<CreateCommunity />} />
+                    <Route path="/post/:id" element={<PostPage />} />
+                    <Route path="/profile" element={<Profile />} />
+                    <Route path="/user/:id" element={<Profile />} />
+                    <Route path="/notifications" element={<Notifications />} />
+                    <Route path="/chats" element={<Chats />} />
+                    <Route path="/search" element={<Search />} />
+                    <Route path="/settings" element={<Settings />} />
+                    <Route path="/admin" element={<AdminPanel />} />
+                </Route>
+                <Route path="/login" element={<Login />} />
+                <Route path="/register" element={<Register />} />
+                <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
+                <Route path="*" element={<PageNotFound />} />
+            </Routes>
+
+            {authModalOpen && (
+                <Dialog open={authModalOpen} onOpenChange={setAuthModalOpen}>
+                    <DialogContent className="sm:max-w-[425px] rounded-2xl">
+                        <DialogHeader>
+                            <DialogTitle className="font-display font-black">Требуется авторизация</DialogTitle>
+                            <DialogDescription className="text-sm">
+                                {authModalMsg}
+                            </DialogDescription>
+                        </DialogHeader>
+                        <DialogFooter className="flex gap-2 justify-end mt-4">
+                            <Button variant="ghost" className="rounded-xl" onClick={() => setAuthModalOpen(false)}>Отмена</Button>
+                            <Button variant="outline" className="rounded-xl" onClick={() => { setAuthModalOpen(false); window.location.href = "/login"; }}>Войти</Button>
+                            <Button className="nexus-gradient text-white border-0 rounded-xl" onClick={() => { setAuthModalOpen(false); window.location.href = "/register"; }}>Регистрация</Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+            )}
+        </>
     );
 };
 

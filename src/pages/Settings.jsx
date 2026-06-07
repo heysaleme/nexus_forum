@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { nexusApi } from '@/api/nexusApi';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,7 +23,7 @@ const THEMES = [
 ];
 
 export default function Settings() {
-    const { user } = useAuth();
+    const { user, checkUserAuth } = useAuth();
     const { toast } = useToast();
     const navigate = useNavigate();
     const [saving, setSaving] = useState(false);
@@ -51,8 +51,15 @@ export default function Settings() {
 
     const handleSave = async () => {
         setSaving(true);
-        await base44.auth.updateMe(profile);
-        toast({ title: '✅ Настройки сохранены!' });
+        try {
+            await nexusApi.auth.updateMe(profile);
+            if (checkUserAuth) {
+                await checkUserAuth();
+            }
+            toast({ title: '✅ Настройки сохранены!' });
+        } catch (err) {
+            toast({ title: 'Ошибка при сохранении настроек', variant: 'destructive' });
+        }
         setSaving(false);
     };
 
@@ -60,7 +67,7 @@ export default function Settings() {
         const file = e.target.files[0];
         if (!file) return;
         setUploading(true);
-        const { file_url } = await base44.integrations.Core.UploadFile({ file });
+        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file });
         setProfile(prev => ({ ...prev, avatar_url: file_url }));
         setUploading(false);
     };
@@ -69,13 +76,13 @@ export default function Settings() {
         const file = e.target.files[0];
         if (!file) return;
         setUploading(true);
-        const { file_url } = await base44.integrations.Core.UploadFile({ file });
+        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file });
         setProfile(prev => ({ ...prev, banner_url: file_url }));
         setUploading(false);
     };
 
     const handleLogout = () => {
-        base44.auth.logout('/');
+        nexusApi.auth.logout('/');
     };
 
     return (

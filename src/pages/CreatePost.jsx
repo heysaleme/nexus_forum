@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { nexusApi } from '@/api/nexusApi';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,11 +18,10 @@ const POST_TYPES = [
     { id: 'image', label: 'Фото', icon: Image },
     { id: 'link', label: 'Ссылка', icon: LinkIcon },
     { id: 'poll', label: 'Опрос', icon: BarChart2 },
-    { id: 'wiki', label: 'Wiki', icon: BookOpen },
 ];
 
 export default function CreatePost() {
-    const { user } = useAuth();
+    const { user, triggerAuthModal } = useAuth();
     const navigate = useNavigate();
     const { toast } = useToast();
     const [searchParams] = useSearchParams();
@@ -41,20 +40,26 @@ export default function CreatePost() {
     const [uploading, setUploading] = useState(false);
     const [mediaUrls, setMediaUrls] = useState([]);
     const [submitting, setSubmitting] = useState(false);
+    const [isNsfw, setIsNsfw] = useState(false);
+    const [isSpoiler, setIsSpoiler] = useState(false);
 
     useEffect(() => {
-        if (!user) { navigate('/login'); return; }
+        if (!user) {
+            triggerAuthModal("Для создания публикации необходимо войти в аккаунт или зарегистрироваться.");
+            navigate('/');
+            return;
+        }
         loadCommunities();
     }, [user]);
 
     const loadCommunities = async () => {
-        const memberships = await base44.entities.CommunityMember.filter({ user_id: user.id });
+        const memberships = await nexusApi.entities.CommunityMember.filter({ user_id: user.id });
         if (memberships.length > 0) {
             const communityIds = memberships.map(m => m.community_id);
-            const allCommunities = await base44.entities.Community.list('-name', 50);
+            const allCommunities = await nexusApi.entities.Community.list('-name', 50);
             setCommunities(allCommunities.filter(c => communityIds.includes(c.id)));
         } else {
-            const allCommunities = await base44.entities.Community.list('-name', 20);
+            const allCommunities = await nexusApi.entities.Community.list('-name', 20);
             setCommunities(allCommunities);
         }
     };
@@ -71,7 +76,7 @@ export default function CreatePost() {
         const file = e.target.files[0];
         if (!file) return;
         setUploading(true);
-        const { file_url } = await base44.integrations.Core.UploadFile({ file });
+        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file });
         setMediaUrls(prev => [...prev, file_url]);
         setUploading(false);
     };
@@ -102,9 +107,11 @@ export default function CreatePost() {
             downvotes: 0,
             views: 0,
             comment_count: 0,
+            is_nsfw: isNsfw,
+            is_spoiler: isSpoiler,
         };
 
-        const post = await base44.entities.Post.create(postData);
+        const post = await nexusApi.entities.Post.create(postData);
         toast({ title: statusOverride === 'draft' ? '📝 Черновик сохранён' : '✅ Опубликовано!' });
         navigate(statusOverride === 'draft' ? '/profile' : `/post/${post.id}`);
         setSubmitting(false);
@@ -148,7 +155,7 @@ export default function CreatePost() {
                             {communities.map(c => (
                                 <SelectItem key={c.id} value={c.id}>
                                     <div className="flex items-center gap-2">
-                                        <img src={c.avatar_url || `https://api.dicebear.com/7.x/shapes/svg?seed=${c.name}`} className="w-5 h-5 rounded-full" alt="" />
+                                        <img src={c.avatar_url || `https://api.dicebear.com/7.x/shapes/svg?seed=${c.name}`} className="w-5 h-5 rounded object-cover" alt="" />
                                         {c.name}
                                     </div>
                                 </SelectItem>
@@ -171,9 +178,9 @@ export default function CreatePost() {
                 </div>
 
                 {/* Content by type */}
-                {type === 'text' || type === 'wiki' ? (
+                {type === 'text' ? (
                     <div>
-                        <Label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Контент</Label>
+                        <Label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Текст</Label>
                         <Textarea
                             value={content}
                             onChange={e => setContent(e.target.value)}
@@ -182,71 +189,105 @@ export default function CreatePost() {
                         />
                     </div>
                 ) : type === 'link' ? (
-                    <div>
-                        <Label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Ссылка</Label>
-                        <Input
-                            value={linkUrl}
-                            onChange={e => setLinkUrl(e.target.value)}
-                            placeholder="https://..."
-                            className="rounded-xl border-border/50 text-sm h-10"
-                        />
+                    <div className="space-y-3">
+                        <div>
+                            <Label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Ссылка</Label>
+                            <Input
+                                value={linkUrl}
+                                onChange={e => setLinkUrl(e.target.value)}
+                                placeholder="https://..."
+                                className="rounded-xl border-border/50 text-sm h-10"
+                            />
+                        </div>
+                        <div>
+                            <Label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Описание (необязательно)</Label>
+                            <Textarea
+                                value={content}
+                                onChange={e => setContent(e.target.value)}
+                                placeholder="Расскажи, почему эта ссылка интересна..."
+                                className="rounded-xl border-border/50 text-sm min-h-20 resize-none"
+                            />
+                        </div>
                     </div>
                 ) : type === 'image' ? (
-                    <div>
-                        <Label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Изображения</Label>
-                        <label className="flex flex-col items-center justify-center border-2 border-dashed border-border/50 rounded-xl p-8 cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-all">
-                            {uploading ? <LoadingSpinner size="sm" /> : (
-                                <>
-                                    <Upload className="w-8 h-8 text-muted-foreground mb-2" />
-                                    <span className="text-sm text-muted-foreground">Нажми для загрузки</span>
-                                </>
+                    <div className="space-y-3">
+                        <div>
+                            <Label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Изображения</Label>
+                            <label className="flex flex-col items-center justify-center border-2 border-dashed border-border/50 rounded-xl p-8 cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-all">
+                                {uploading ? <LoadingSpinner size="sm" /> : (
+                                    <>
+                                        <Upload className="w-8 h-8 text-muted-foreground mb-2" />
+                                        <span className="text-sm text-muted-foreground">Нажми для загрузки</span>
+                                    </>
+                                )}
+                                <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                            </label>
+                            {mediaUrls.length > 0 && (
+                                <div className="flex gap-2 flex-wrap mt-2">
+                                    {mediaUrls.map((url, i) => (
+                                        <div key={i} className="relative">
+                                            <img src={url} className="w-20 h-20 rounded-xl object-cover" alt="" />
+                                            <button
+                                                onClick={() => setMediaUrls(prev => prev.filter((_, j) => j !== i))}
+                                                className="absolute -top-1 -right-1 w-5 h-5 bg-destructive rounded-full flex items-center justify-center"
+                                            >
+                                                <X className="w-3 h-3 text-white" />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
                             )}
-                            <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-                        </label>
-                        {mediaUrls.length > 0 && (
-                            <div className="flex gap-2 flex-wrap mt-2">
-                                {mediaUrls.map((url, i) => (
-                                    <div key={i} className="relative">
-                                        <img src={url} className="w-20 h-20 rounded-xl object-cover" alt="" />
-                                        <button
-                                            onClick={() => setMediaUrls(prev => prev.filter((_, j) => j !== i))}
-                                            className="absolute -top-1 -right-1 w-5 h-5 bg-destructive rounded-full flex items-center justify-center"
-                                        >
-                                            <X className="w-3 h-3 text-white" />
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                        </div>
+                        <div>
+                            <Label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Подпись к изображению (необязательно)</Label>
+                            <Textarea
+                                value={content}
+                                onChange={e => setContent(e.target.value)}
+                                placeholder="Добавь описание или контекст к изображению..."
+                                className="rounded-xl border-border/50 text-sm min-h-20 resize-none"
+                            />
+                        </div>
                     </div>
                 ) : type === 'poll' ? (
-                    <div>
-                        <Label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Варианты ответа</Label>
-                        <div className="space-y-2">
-                            {pollOptions.map((opt, i) => (
-                                <div key={i} className="flex gap-2">
-                                    <Input
-                                        value={opt}
-                                        onChange={e => { const o = [...pollOptions]; o[i] = e.target.value; setPollOptions(o); }}
-                                        placeholder={`Вариант ${i + 1}`}
-                                        className="rounded-xl border-border/50 text-sm h-9"
-                                    />
-                                    {i >= 2 && (
-                                        <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl" onClick={() => setPollOptions(prev => prev.filter((_, j) => j !== i))}>
-                                            <X className="w-4 h-4" />
-                                        </Button>
-                                    )}
-                                </div>
-                            ))}
-                            {pollOptions.length < 6 && (
-                                <Button variant="ghost" size="sm" className="rounded-xl gap-1.5 text-xs" onClick={() => setPollOptions([...pollOptions, ''])}>
-                                    <Plus className="w-3.5 h-3.5" />
-                                    Добавить вариант
-                                </Button>
-                            )}
+                    <div className="space-y-3">
+                        <div>
+                            <Label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Описание опроса (необязательно)</Label>
+                            <Textarea
+                                value={content}
+                                onChange={e => setContent(e.target.value)}
+                                placeholder="Поясни суть вопроса..."
+                                className="rounded-xl border-border/50 text-sm min-h-16 resize-none"
+                            />
+                        </div>
+                        <div>
+                            <Label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Варианты ответа</Label>
+                            <div className="space-y-2">
+                                {pollOptions.map((opt, i) => (
+                                    <div key={i} className="flex gap-2">
+                                        <Input
+                                            value={opt}
+                                            onChange={e => { const o = [...pollOptions]; o[i] = e.target.value; setPollOptions(o); }}
+                                            placeholder={`Вариант ${i + 1}`}
+                                            className="rounded-xl border-border/50 text-sm h-9"
+                                        />
+                                        {i >= 2 && (
+                                            <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl" onClick={() => setPollOptions(prev => prev.filter((_, j) => j !== i))}>
+                                                <X className="w-4 h-4" />
+                                            </Button>
+                                        )}
+                                    </div>
+                                ))}
+                                {pollOptions.length < 6 && (
+                                    <Button variant="ghost" size="sm" className="rounded-xl gap-1.5 text-xs" onClick={() => setPollOptions([...pollOptions, ''])}>
+                                        <Plus className="w-3.5 h-3.5" />
+                                        Добавить вариант
+                                    </Button>
+                                )}
+                            </div>
                         </div>
                     </div>
                 ) : null}
+
 
                 {/* Tags */}
                 <div>
@@ -273,6 +314,28 @@ export default function CreatePost() {
                             ))}
                         </div>
                     )}
+                </div>
+
+                {/* NSFW & Spoiler Options */}
+                <div className="flex gap-6 py-1">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                            type="checkbox"
+                            checked={isNsfw}
+                            onChange={(e) => setIsNsfw(e.target.checked)}
+                            className="rounded border-border/50 text-primary focus:ring-primary w-4 h-4 accent-primary"
+                        />
+                        <span className="text-sm font-semibold text-muted-foreground">NSFW (18+)</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                            type="checkbox"
+                            checked={isSpoiler}
+                            onChange={(e) => setIsSpoiler(e.target.checked)}
+                            className="rounded border-border/50 text-primary focus:ring-primary w-4 h-4 accent-primary"
+                        />
+                        <span className="text-sm font-semibold text-muted-foreground">Спойлер</span>
+                    </label>
                 </div>
 
                 {/* Actions */}

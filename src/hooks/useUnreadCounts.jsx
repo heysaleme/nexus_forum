@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { nexusApi } from '@/api/nexusApi';
 
 export default function useUnreadCounts(user) {
     const [counts, setCounts] = useState({ notifications: 0, chats: 0 });
@@ -14,8 +14,8 @@ export default function useUnreadCounts(user) {
 
         const loadCounts = async () => {
             const [notifications, rooms] = await Promise.all([
-                base44.entities.Notification.filter({ user_id: user.id }, '-created_date', 100),
-                base44.entities.ChatRoom.filter({ participants: user.id }, '-last_message_at', 100),
+                nexusApi.entities.Notification.filter({ user_id: user.id }, '-created_date', 100),
+                nexusApi.entities.ChatRoom.filter({ participants: user.id }, '-last_message_at', 100),
             ]);
 
             if (!cancelled) {
@@ -28,8 +28,8 @@ export default function useUnreadCounts(user) {
 
         loadCounts();
 
-        const unsubNotifications = base44.entities.Notification.subscribe(loadCounts);
-        const unsubChats = base44.entities.ChatRoom.subscribe(loadCounts);
+        const unsubNotifications = nexusApi.entities.Notification.subscribe(loadCounts);
+        const unsubChats = nexusApi.entities.ChatRoom.subscribe(loadCounts);
 
         return () => {
             cancelled = true;

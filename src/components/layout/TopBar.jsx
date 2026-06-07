@@ -63,12 +63,6 @@ export default function TopBar({ user }) {
                                     )}
                                 </Button>
                             </Link>
-                            {/* Settings icon — mobile only */}
-                            <Link to="/settings" className="md:hidden">
-                                <Button variant="ghost" size="icon" className="h-10 w-10 rounded-[1rem]">
-                                    <Settings className="w-4 h-4" />
-                                </Button>
-                            </Link>
                         </>
                     ) : (
                         <div className="flex gap-2">
