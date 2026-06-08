@@ -260,6 +260,18 @@ export default function Chats() {
         }
     };
 
+    const handleDeleteRoom = async (roomId) => {
+        if (!window.confirm('Вы уверены, что хотите удалить весь диалог для обоих участников? Это действие сотрет всю переписку.')) return;
+        try {
+            await nexusApi.entities.ChatRoom.delete(roomId);
+            toast({ title: '🗑️ Диалог успешно удален' });
+            setSelectedRoom(null);
+            setRooms(prev => prev.filter(r => r.id !== roomId));
+        } catch (err) {
+            toast({ title: 'Не удалось удалить диалог', variant: 'destructive' });
+        }
+    };
+
     const loadMessages = async (roomId) => {
         const data = await nexusApi.entities.Message.filter({ chat_room_id: roomId }, 'created_date', 50);
         setMessages(data);
@@ -372,10 +384,18 @@ export default function Chats() {
                                 className="w-9 h-9 rounded-2xl object-cover"
                                 alt=""
                             />
-                            <div>
+                            <div className="flex-1 min-w-0">
                                 <p className="text-sm font-bold">{getRoomDisplayName(selectedRoom)}</p>
                                 <p className="text-xs text-muted-foreground">{selectedRoom.type === 'group' ? 'Групповой чат' : 'Личный чат'}</p>
                             </div>
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-8 w-8 rounded-xl text-destructive hover:bg-destructive/10"
+                                onClick={() => handleDeleteRoom(selectedRoom.id)}
+                            >
+                                <Trash2 className="w-4 h-4" />
+                            </Button>
                         </div>
 
                         {/* Messages */}

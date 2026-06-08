@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -15,6 +16,7 @@ type AuthService interface {
 	VerifyOTP(email, otpCode string) (string, *model.User, error)
 	Login(email, password string) (string, *model.User, error)
 	ValidateToken(tokenStr string) (*Claims, error)
+	ChangePassword(userID uint, oldPassword, newPassword string) error
 }
 
 // In-memory pending registration store for OTP code verification (simulating Redis/DB)
@@ -22,11 +24,12 @@ var pendingRegistrations = make(map[string]string) // email -> hashed_password
 
 type authService struct {
 	repo      repository.UserRepository
+	modRepo   repository.ModerationRepository
 	jwtSecret string
 }
 
-func NewAuthService(repo repository.UserRepository, jwtSecret string) AuthService {
-	return &authService{repo: repo, jwtSecret: jwtSecret}
+func NewAuthService(repo repository.UserRepository, modRepo repository.ModerationRepository, jwtSecret string) AuthService {
+	return &authService{repo: repo, modRepo: modRepo, jwtSecret: jwtSecret}
 }
 
 func (s *authService) Register(email, password string) error {
@@ -58,7 +61,8 @@ func (s *authService) VerifyOTP(email, otpCode string) (string, *model.User, err
 	}
 
 	// Create User
-	username := stringsSplitEmail(email)
+	parts := strings.Split(email, "@")
+	username := parts[0]
 	user := &model.User{
 		Username:     username,
 		Email:        email,
@@ -84,19 +88,49 @@ func (s *authService) VerifyOTP(email, otpCode string) (string, *model.User, err
 func (s *authService) Login(email, password string) (string, *model.User, error) {
 	user, err := s.repo.GetByEmail(email)
 	if err != nil {
+		_ = s.modRepo.CreateLog(&model.ModerationLog{
+			ActorID:    0,
+			TargetID:   0,
+			TargetType: "user",
+			Action:     "login_failed",
+			Details:    "Failed login attempt (email not found) for: " + email,
+		})
 		return "", nil, errors.New("invalid email or password")
 	}
 
 	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
 	if err != nil {
+		_ = s.modRepo.CreateLog(&model.ModerationLog{
+			ActorID:    0,
+			TargetID:   user.ID,
+			TargetType: "user",
+			Action:     "login_failed",
+			Details:    "Failed login attempt (invalid password) for user ID: " + strconvFormatUint(user.ID),
+		})
 		return "", nil, errors.New("invalid email or password")
 	}
 
 	if user.IsBanned {
+		_ = s.modRepo.CreateLog(&model.ModerationLog{
+			ActorID:    user.ID,
+			TargetID:   user.ID,
+			TargetType: "user",
+			Action:     "login_failed",
+			Details:    "Failed login attempt (user is banned) for user ID: " + strconvFormatUint(user.ID),
+		})
 		return "", nil, errors.New("this account is banned")
 	}
 
 	token, err := s.generateJWT(user)
+	if err == nil {
+		_ = s.modRepo.CreateLog(&model.ModerationLog{
+			ActorID:    user.ID,
+			TargetID:   user.ID,
+			TargetType: "user",
+			Action:     "login_success",
+			Details:    "User logged in successfully",
+		})
+	}
 	return token, user, err
 }
 
@@ -130,4 +164,53 @@ func (s *authService) generateJWT(user *model.User) (string, error) {
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(s.jwtSecret))
+}
+
+func (s *authService) ChangePassword(userID uint, oldPassword, newPassword string) error {
+	user, err := s.repo.GetByID(userID)
+	if err != nil {
+		return errors.New("user not found")
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(oldPassword))
+	if err != nil {
+		_ = s.modRepo.CreateLog(&model.ModerationLog{
+			ActorID:    userID,
+			TargetID:   userID,
+			TargetType: "user",
+			Action:     "password_reset_request",
+			Details:    "Failed password change attempt: invalid old password",
+		})
+		return errors.New("invalid old password")
+	}
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	user.PasswordHash = string(hashed)
+	err = s.repo.Update(user)
+	if err == nil {
+		_ = s.modRepo.CreateLog(&model.ModerationLog{
+			ActorID:    userID,
+			TargetID:   userID,
+			TargetType: "user",
+			Action:     "password_reset_completed",
+			Details:    "Password changed successfully via Settings",
+		})
+	}
+	return err
+}
+
+func strconvFormatUint(n uint) string {
+	var res []byte
+	if n == 0 {
+		return "0"
+	}
+	for n > 0 {
+		res = append([]byte{byte('0' + n%10)}, res...)
+		n /= 10
+	}
+	return string(res)
 }

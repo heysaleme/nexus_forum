@@ -17,6 +17,7 @@ type ChatService interface {
 	GetRoom(roomID, userID uint) (*model.ChatRoom, error)
 	UpdateRoom(room *model.ChatRoom) error
 	DeleteMessage(userID, msgID uint) error
+	DeleteRoom(userID, roomID uint) error
 }
 
 type chatService struct {
@@ -119,4 +120,29 @@ func (s *chatService) DeleteMessage(userID, msgID uint) error {
 		}
 	}
 	return s.repo.DeleteMessage(msgID)
+}
+
+func (s *chatService) DeleteRoom(userID, roomID uint) error {
+	room, err := s.repo.GetRoom(roomID)
+	if err != nil {
+		return err
+	}
+	var pids []uint
+	if err := json.Unmarshal([]byte(room.Participants), &pids); err != nil {
+		return err
+	}
+	isParticipant := false
+	for _, pid := range pids {
+		if pid == userID {
+			isParticipant = true
+			break
+		}
+	}
+	if !isParticipant {
+		user, err := s.userRepo.GetByID(userID)
+		if err != nil || (user.Role != "admin" && user.Role != "moderator") {
+			return errors.New("unauthorized to delete this chat room")
+		}
+	}
+	return s.repo.DeleteRoom(roomID)
 }

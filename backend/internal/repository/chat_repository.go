@@ -17,6 +17,7 @@ type ChatRepository interface {
 	MarkRoomMessagesRead(roomID, userID uint) error
 	DeleteMessage(id uint) error
 	GetMessage(id uint) (*model.Message, error)
+	DeleteRoom(id uint) error
 }
 
 type chatRepository struct {
@@ -93,4 +94,11 @@ func (r *chatRepository) GetMessage(id uint) (*model.Message, error) {
 	var msg model.Message
 	err := r.db.First(&msg, id).Error
 	return &msg, err
+}
+
+func (r *chatRepository) DeleteRoom(id uint) error {
+	if err := r.db.Where("chat_room_id = ?", id).Delete(&model.Message{}).Error; err != nil {
+		return err
+	}
+	return r.db.Delete(&model.ChatRoom{}, id).Error
 }

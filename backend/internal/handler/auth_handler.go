@@ -121,3 +121,27 @@ func (h *Handlers) UpdateMe(c *gin.Context) {
 
 	c.JSON(http.StatusOK, user)
 }
+
+func (h *Handlers) ChangePassword(c *gin.Context) {
+	uid, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		OldPassword string `json:"old_password" binding:"required"`
+		NewPassword string `json:"new_password" binding:"required,min=6"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	err := h.AuthService.ChangePassword(uid, req.OldPassword, req.NewPassword)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}

@@ -159,3 +159,23 @@ func (h *Handlers) DeleteMessage(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
+
+func (h *Handlers) DeleteChatRoom(c *gin.Context) {
+	uid, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
+	roomID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+
+	err := h.ChatService.DeleteRoom(uid, roomID)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
