@@ -8,6 +8,7 @@ import (
 
 type UserService interface {
 	GetByID(id uint) (*model.User, error)
+	GetByIDs(ids []uint) (map[uint]*model.User, error)
 	UpdateProfile(userID uint, req model.User) (*model.User, error)
 	UpdateUser(actorID, userID uint, role string, isBanned *bool) (*model.User, error)
 	IsFollowing(followerID, followingID uint) (bool, error)
@@ -46,6 +47,10 @@ func NewUserService(
 
 func (s *userService) GetByID(id uint) (*model.User, error) {
 	return s.repo.GetByID(id)
+}
+
+func (s *userService) GetByIDs(ids []uint) (map[uint]*model.User, error) {
+	return s.repo.GetByIDs(ids)
 }
 
 func (s *userService) UpdateProfile(userID uint, req model.User) (*model.User, error) {

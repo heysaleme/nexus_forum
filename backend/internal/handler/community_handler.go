@@ -22,6 +22,10 @@ func (h *Handlers) CreateCommunity(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if isBase64DataURL(req.AvatarURL) || isBase64DataURL(req.BannerURL) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "upload community images via /api/upload; base64 data URLs are not allowed"})
+		return
+	}
 
 	comm := &model.Community{
 		Name:        req.Name,

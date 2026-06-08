@@ -105,13 +105,15 @@ func (h *Handlers) ListComments(c *gin.Context) {
 	}
 
 	userID, authenticated := getOptionalUserID(c, h.AuthService)
-
-	if authenticated {
+	if authenticated && len(comments) > 0 {
+		ids := make([]uint, len(comments))
+		for i, comment := range comments {
+			ids[i] = comment.ID
+		}
+		votes := h.CommentService.GetVotesForComments(userID, ids)
 		for _, comment := range comments {
-			vote, err := h.CommentService.GetVote(userID, comment.ID)
-
-			if err == nil {
-				comment.UserVote = vote.Value
+			if value, ok := votes[comment.ID]; ok {
+				comment.UserVote = value
 			}
 		}
 	}

@@ -14,6 +14,7 @@ type CommentService interface {
 	GetByPostID(postID uint, viewerID uint) ([]*model.Comment, error)
 	Vote(userID, commentID uint, value int) error
 	GetVote(userID, commentID uint) (*model.Vote, error)
+	GetVotesForComments(userID uint, commentIDs []uint) map[uint]int
 }
 
 type commentService struct {
@@ -44,9 +45,25 @@ func NewCommentService(
 }
 
 func (s *commentService) Create(comment *model.Comment) error {
+	if comment.ParentID != nil && *comment.ParentID > 0 {
+		parent, err := s.repo.GetByID(*comment.ParentID)
+		if err != nil {
+			return errors.New("parent comment not found")
+		}
+		if parent.PostID != comment.PostID {
+			return errors.New("parent comment belongs to a different post")
+		}
+		replyToID := parent.AuthorID
+		comment.ReplyToUserID = &replyToID
+	}
+
 	err := s.repo.Create(comment)
 	if err != nil {
 		return err
+	}
+
+	if hydrated, hydrateErr := s.repo.GetByID(comment.ID); hydrateErr == nil {
+		*comment = *hydrated
 	}
 
 	// Increment comment count on post
@@ -224,4 +241,8 @@ func (s *commentService) Vote(userID, commentID uint, value int) error {
 
 func (s *commentService) GetVote(userID, commentID uint) (*model.Vote, error) {
 	return s.voteRepo.GetVote(userID, "comment", commentID)
+}
+
+func (s *commentService) GetVotesForComments(userID uint, commentIDs []uint) map[uint]int {
+	return s.voteRepo.GetVotesForEntities(userID, "comment", commentIDs)
 }

@@ -4,21 +4,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"nexus-forum-backend/internal/config"
+	"nexus-forum-backend/internal/database"
 	"nexus-forum-backend/internal/handler"
 	"nexus-forum-backend/internal/middleware"
 	"nexus-forum-backend/internal/model"
 	"nexus-forum-backend/internal/repository"
 	"nexus-forum-backend/internal/service"
+	"nexus-forum-backend/internal/storage"
 )
 
 func main() {
@@ -43,12 +46,16 @@ func main() {
 			db, err = gorm.Open(sqlite.Open(cfg.SqliteDB), &gorm.Config{})
 		}
 	} else {
+		if _, statErr := os.Stat(cfg.SqliteDB); os.IsNotExist(statErr) {
+			logger.Info("sqlite database file not found; a new database will be created on first migration", "path", cfg.SqliteDB)
+		}
 		db, err = gorm.Open(sqlite.Open(cfg.SqliteDB), &gorm.Config{})
 	}
 
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
+	logger.Info("database connected", "db_type", cfg.DBType, "sqlite_file", cfg.SqliteDB)
 
 	// 4. Auto Migrate
 	err = db.AutoMigrate(
@@ -79,6 +86,7 @@ func main() {
 	db.Exec("UPDATE user_follows SET status = 'accepted' WHERE status = '' OR status IS NULL")
 
 	logger.Info("database auto-migrations complete")
+	database.PurgeLegacyBase64Media(db)
 
 	// 5. Seed Demo Data if empty
 	seedDemoData(db)
@@ -108,6 +116,13 @@ func main() {
 	notifService := service.NewNotificationService(notifRepo)
 	modService := service.NewModerationService(modRepo, userRepo, postRepo, commentRepo, commRepo, notifRepo, keywordFilterRepo)
 	analyticsService := service.NewAnalyticsService(analyticsRepo, userRepo, postRepo)
+
+	objectStore, err := storage.NewObjectStore(cfg)
+	if err != nil {
+		log.Fatalf("failed to initialize object storage: %v", err)
+	}
+	uploadService := service.NewUploadService(objectStore)
+	logger.Info("upload service ready", "backend", uploadService.Backend())
 
 	// WebSocket hub (starts background goroutine)
 	wsHub := handler.NewWSHub(db)
@@ -142,12 +157,14 @@ func main() {
 		}
 	}
 
-	handlers := handler.NewHandlers(authService, userService, commService, postService, commentService, chatService, notifService, modService, analyticsService, wsHub, cfg.TurnstileSecret)
+	handlers := handler.NewHandlers(authService, userService, commService, postService, commentService, chatService, notifService, modService, analyticsService, uploadService, wsHub, cfg.TurnstileSecret)
 
 	// OAuth handler config
 	oauthCfg := handler.OAuthConfig{
 		GoogleClientID:     cfg.GoogleClientID,
 		GoogleClientSecret: cfg.GoogleClientSecret,
+		GithubClientID:     cfg.GithubClientID,
+		GithubClientSecret: cfg.GithubClientSecret,
 		FrontendURL:        cfg.FrontendURL,
 	}
 
@@ -157,16 +174,15 @@ func main() {
 
 	// Apply Middlewares
 	r.Use(CORSMiddleware())
+	r.Use(middleware.PrometheusMiddleware())
 	r.Use(middleware.LoggerMiddleware())
 	r.Use(gin.Recovery())
 
-	// Serve uploads statically
-	r.Static("/uploads", "./uploads")
+	// Serve local uploads statically (fallback when MinIO is not used)
+	r.Static("/uploads", cfg.LocalUploadDir)
 
-	// Health check
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "time": time.Now().Format(time.RFC3339)})
-	})
+	r.GET("/health", handler.Health(db))
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	authRateLimit := middleware.NewRateLimiter(30, time.Minute)
 	postRateLimit := middleware.NewRateLimiter(15, time.Minute)
@@ -186,6 +202,8 @@ func main() {
 		api.GET("/auth/oauth/config", handler.GetOAuthProviderConfig(oauthCfg))
 		api.GET("/auth/oauth/google", handler.GoogleOAuthInitiate(oauthCfg))
 		api.POST("/auth/oauth/google/callback", handler.GoogleOAuthCallback(oauthCfg, authService))
+		api.GET("/auth/oauth/github", handler.GitHubOAuthInitiate(oauthCfg))
+		api.POST("/auth/oauth/github/callback", handler.GitHubOAuthCallback(oauthCfg, authService))
 
 		// Public User details
 		api.GET("/users", handlers.ListUsers)

@@ -151,7 +151,7 @@ function CommentItem({ comment, depth = 0, currentUser, postId, onCommentAdded, 
             });
             setReplyText('');
             setShowReply(false);
-            onCommentAdded?.(result, comment.id, comment.author_username);
+            onCommentAdded?.(result);
         } catch (err) {
             console.error(err);
             toast({ title: 'Не удалось отправить ответ', variant: 'destructive' });
@@ -307,7 +307,6 @@ export default function PostPage() {
             setPost(posts[0]);
             setScore(posts[0].score || 0);
             setUserVote(Number(posts[0].user_vote) || 0);
-            nexusApi.entities.Post.update(posts[0].id, { views: (posts[0].views || 0) + 1 });
 
             if (user) {
                 const mems = await nexusApi.entities.CommunityMember.filter({ user_id: user.id, community_id: posts[0].community_id }).catch(() => []);
@@ -418,7 +417,7 @@ export default function PostPage() {
         const file = e.target.files[0];
         if (!file) return;
         setEditUploading(true);
-        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file });
+        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'posts/images' });
         setEditMediaUrls(prev => [...prev, file_url]);
         setEditUploading(false);
     };
@@ -476,14 +475,10 @@ export default function PostPage() {
         return allComments
             .filter((c) => normalizeParentId(c.parent_id) === normParent)
             .sort((a, b) => new Date(a.created_date) - new Date(b.created_date))
-            .map((c) => {
-                const parent = allComments.find((p) => Number(p.id) === normalizeParentId(c.parent_id));
-                return {
-                    ...c,
-                    reply_to_username: parent?.author_username,
-                    children: buildCommentTree(allComments, c.id),
-                };
-            });
+            .map((c) => ({
+                ...c,
+                children: buildCommentTree(allComments, c.id),
+            }));
     };
 
     const sortRootComments = (roots) => {
@@ -492,13 +487,8 @@ export default function PostPage() {
         return [...roots].sort((a, b) => new Date(a.created_date) - new Date(b.created_date));
     };
 
-    const handleCommentAdded = (newCommentData, parentId = null, parentUsername = null) => {
-        const enriched = {
-            ...newCommentData,
-            parent_id: parentId ?? newCommentData.parent_id ?? null,
-            reply_to_username: parentUsername ?? newCommentData.reply_to_username,
-        };
-        setComments((prev) => [...prev, enriched]);
+    const handleCommentAdded = (newCommentData) => {
+        setComments((prev) => [...prev, newCommentData]);
         setPost((prev) => (prev ? { ...prev, comment_count: (prev.comment_count || 0) + 1 } : prev));
     };
 

@@ -95,7 +95,8 @@ const AuthenticatedApp = () => {
                 <Route path="/register" element={<Register />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
-                <Route path="/auth/callback/google" element={<OAuthCallback />} />
+                <Route path="/auth/callback/google" element={<OAuthCallback provider="google" />} />
+                <Route path="/auth/callback/github" element={<OAuthCallback provider="github" />} />
                 <Route path="*" element={<PageNotFound />} />
             </Routes>
 

@@ -92,11 +92,39 @@ func (r *commentRepository) hydrateCommentFields(comments []*model.Comment) {
 	if len(comments) == 0 {
 		return
 	}
+
+	userIDs := make(map[uint]struct{})
 	for _, comment := range comments {
-		var author model.User
-		if err := r.db.First(&author, comment.AuthorID).Error; err == nil {
+		userIDs[comment.AuthorID] = struct{}{}
+		if comment.ReplyToUserID != nil {
+			userIDs[*comment.ReplyToUserID] = struct{}{}
+		}
+	}
+
+	ids := make([]uint, 0, len(userIDs))
+	for id := range userIDs {
+		ids = append(ids, id)
+	}
+
+	usersByID := make(map[uint]model.User)
+	if len(ids) > 0 {
+		var users []model.User
+		if err := r.db.Where("id IN ?", ids).Find(&users).Error; err == nil {
+			for _, u := range users {
+				usersByID[u.ID] = u
+			}
+		}
+	}
+
+	for _, comment := range comments {
+		if author, ok := usersByID[comment.AuthorID]; ok {
 			comment.AuthorUsername = author.Username
 			comment.AuthorAvatar = author.AvatarURL
+		}
+		if comment.ReplyToUserID != nil {
+			if replyTo, ok := usersByID[*comment.ReplyToUserID]; ok {
+				comment.ReplyToUsername = replyTo.Username
+			}
 		}
 	}
 }

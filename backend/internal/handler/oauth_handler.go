@@ -71,6 +71,8 @@ func init() {
 type OAuthConfig struct {
 	GoogleClientID     string
 	GoogleClientSecret string
+	GithubClientID     string
+	GithubClientSecret string
 	FrontendURL        string
 }
 
@@ -81,7 +83,8 @@ func GetOAuthProviderConfig(cfg OAuthConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"google_enabled": cfg.GoogleClientID != "",
-			"apple_enabled":  false, // Apple OAuth not implemented in Phase 2B
+			"github_enabled": cfg.GithubClientID != "",
+			"apple_enabled":  false,
 		})
 	}
 }
@@ -251,4 +254,223 @@ func decodeGoogleIDToken(idToken string) (*googleUserInfo, error) {
 		return nil, errors.New("missing 'sub' in id_token")
 	}
 	return &info, nil
+}
+
+type githubTokenResponse struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	Scope       string `json:"scope"`
+	Error       string `json:"error"`
+}
+
+type githubUserInfo struct {
+	ID        int64  `json:"id"`
+	Login     string `json:"login"`
+	Name      string `json:"name"`
+	Email     string `json:"email"`
+	AvatarURL string `json:"avatar_url"`
+}
+
+// GitHubOAuthInitiate returns the GitHub authorization URL.
+// Route: GET /api/auth/oauth/github
+func GitHubOAuthInitiate(cfg OAuthConfig) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if cfg.GithubClientID == "" {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "GitHub OAuth is not configured"})
+			return
+		}
+
+		state, err := generateState()
+		if err != nil {
+			slog.Error("failed to generate OAuth state", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+			return
+		}
+
+		redirectURI := cfg.FrontendURL + "/auth/callback/github"
+		params := url.Values{
+			"client_id":    {cfg.GithubClientID},
+			"redirect_uri": {redirectURI},
+			"scope":        {"read:user user:email"},
+			"state":        {state},
+		}
+		authURL := "https://github.com/login/oauth/authorize?" + params.Encode()
+		c.JSON(http.StatusOK, gin.H{"url": authURL, "state": state})
+	}
+}
+
+// GitHubOAuthCallback exchanges the GitHub code and issues Nexus tokens.
+// Route: POST /api/auth/oauth/github/callback
+func GitHubOAuthCallback(cfg OAuthConfig, authSvc service.AuthService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if cfg.GithubClientID == "" {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "GitHub OAuth is not configured"})
+			return
+		}
+
+		var body struct {
+			Code  string `json:"code" binding:"required"`
+			State string `json:"state" binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "code and state are required"})
+			return
+		}
+
+		if !consumeState(body.State) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid or expired state"})
+			return
+		}
+
+		redirectURI := cfg.FrontendURL + "/auth/callback/github"
+		accessToken, err := exchangeGitHubCode(body.Code, redirectURI, cfg)
+		if err != nil {
+			slog.Error("github token exchange failed", "error", err)
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to exchange code with GitHub"})
+			return
+		}
+
+		userInfo, err := fetchGitHubUser(accessToken)
+		if err != nil {
+			slog.Error("failed to fetch github user", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse user info"})
+			return
+		}
+
+		email := userInfo.Email
+		if email == "" {
+			email, _ = fetchGitHubPrimaryEmail(accessToken)
+		}
+		if email == "" {
+			email = fmt.Sprintf("%s@users.noreply.github.com", userInfo.Login)
+		}
+
+		displayName := userInfo.Name
+		if displayName == "" {
+			displayName = userInfo.Login
+		}
+
+		subject := fmt.Sprintf("%d", userInfo.ID)
+		user, jwtAccess, refreshToken, err := authSvc.FindOrCreateOAuthUser("github", subject, email, displayName, userInfo.AvatarURL)
+		if err != nil {
+			slog.Error("FindOrCreateOAuthUser failed", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to authenticate user"})
+			return
+		}
+
+		slog.Info("github oauth login", "user_id", user.ID, "email", user.Email)
+		c.JSON(http.StatusOK, gin.H{
+			"access_token":  jwtAccess,
+			"refresh_token": refreshToken,
+			"user":          user,
+		})
+	}
+}
+
+func exchangeGitHubCode(code, redirectURI string, cfg OAuthConfig) (string, error) {
+	form := url.Values{
+		"client_id":     {cfg.GithubClientID},
+		"client_secret": {cfg.GithubClientSecret},
+		"code":          {code},
+		"redirect_uri":  {redirectURI},
+	}
+
+	req, err := http.NewRequest(http.MethodPost, "https://github.com/login/oauth/access_token", strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var tokenResp githubTokenResponse
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		return "", err
+	}
+	if tokenResp.Error != "" {
+		return "", fmt.Errorf("github error: %s", tokenResp.Error)
+	}
+	if tokenResp.AccessToken == "" {
+		return "", errors.New("missing access_token")
+	}
+	return tokenResp.AccessToken, nil
+}
+
+func fetchGitHubUser(accessToken string) (*githubUserInfo, error) {
+	req, err := http.NewRequest(http.MethodGet, "https://api.github.com/user", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var info githubUserInfo
+	if err := json.Unmarshal(body, &info); err != nil {
+		return nil, err
+	}
+	if info.ID == 0 {
+		return nil, errors.New("missing github user id")
+	}
+	return &info, nil
+}
+
+func fetchGitHubPrimaryEmail(accessToken string) (string, error) {
+	req, err := http.NewRequest(http.MethodGet, "https://api.github.com/user/emails", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var emails []struct {
+		Email    string `json:"email"`
+		Primary  bool   `json:"primary"`
+		Verified bool   `json:"verified"`
+	}
+	if err := json.Unmarshal(body, &emails); err != nil {
+		return "", err
+	}
+	for _, e := range emails {
+		if e.Primary && e.Verified {
+			return e.Email, nil
+		}
+	}
+	for _, e := range emails {
+		if e.Verified {
+			return e.Email, nil
+		}
+	}
+	return "", nil
 }

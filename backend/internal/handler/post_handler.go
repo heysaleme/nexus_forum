@@ -2,7 +2,6 @@ package handler
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"nexus-forum-backend/internal/dto"
 	"nexus-forum-backend/internal/middleware"
@@ -22,6 +21,10 @@ func (h *Handlers) CreatePost(c *gin.Context) {
 	var req dto.CreatePostRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if rejectBase64MediaURLs(req.MediaUrls) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "upload media via /api/upload; base64 data URLs are not allowed"})
 		return
 	}
 	// Anti-spam: record action and get is_suspicious status
@@ -115,19 +118,14 @@ func (h *Handlers) GetPostByID(c *gin.Context) {
 		}
 	}
 	userID, authenticated := getOptionalUserID(c, h.AuthService)
-	fmt.Println("===== GET POST =====")
-	fmt.Println("USER:", userID)
-	fmt.Println("AUTH:", authenticated)
 	if authenticated {
 		vote, err := h.PostService.GetVote(userID, post.ID)
-		fmt.Println("VOTE:", vote)
-		fmt.Println("ERR:", err)
 		if err == nil {
 			post.UserVote = vote.Value
-			fmt.Println("SET USER_VOTE:", vote.Value)
 		}
 	}
-	fmt.Println("JSON USER_VOTE:", post.UserVote)
+	_ = h.PostService.IncrementViews(post.ID)
+	post.Views++
 	c.JSON(http.StatusOK, post)
 }
 
@@ -185,47 +183,13 @@ func (h *Handlers) ListPosts(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	userID := viewerID
 	_, hasCommunity := filter["community_id"]
 	_, hasAuthor := filter["author_id"]
 	isGeneralFeed := !hasCommunity && !hasAuthor
-	var visiblePosts []*model.Post
-	for _, post := range posts {
-		author, err := h.UserService.GetByID(post.AuthorID)
-		if err != nil {
-			visiblePosts = append(visiblePosts, post)
-			continue
-		}
-		if author.IsPrivate {
-			if isGeneralFeed {
-				continue
-			}
-			isAuthorized := false
-			if authenticated {
-				if userID == post.AuthorID {
-					isAuthorized = true
-				} else {
-					following, _ := h.UserService.IsFollowing(userID, post.AuthorID)
-					if following {
-						isAuthorized = true
-					}
-				}
-			}
-			if !isAuthorized {
-				continue
-			}
-		}
-		visiblePosts = append(visiblePosts, post)
-	}
-	posts = visiblePosts
-	if authenticated {
-		for _, post := range posts {
-			vote, err := h.PostService.GetVote(userID, post.ID)
-			if err == nil {
-				post.UserVote = vote.Value
-			}
-		}
-	}
+
+	authors, _ := h.UserService.GetByIDs(collectAuthorIDs(posts))
+	posts = filterPostsByPrivacy(posts, authors, viewerID, authenticated, isGeneralFeed, h.UserService)
+	applyPostVotes(posts, viewerID, h.PostService)
 	c.JSON(http.StatusOK, posts)
 }
 
@@ -242,13 +206,7 @@ func (h *Handlers) ListFollowingPosts(c *gin.Context) {
 		return
 	}
 
-	for _, post := range posts {
-		vote, err := h.PostService.GetVote(userID, post.ID)
-		if err == nil {
-			post.UserVote = vote.Value
-		}
-	}
-
+	applyPostVotes(posts, userID, h.PostService)
 	c.JSON(http.StatusOK, posts)
 }
 

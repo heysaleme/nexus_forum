@@ -10,6 +10,7 @@ import (
 type UserRepository interface {
 	Create(user *model.User) error
 	GetByID(id uint) (*model.User, error)
+	GetByIDs(ids []uint) (map[uint]*model.User, error)
 	GetByEmail(email string) (*model.User, error)
 	GetByUsername(username string) (*model.User, error)
 	GetByOAuth(provider, subject string) (*model.User, error)
@@ -34,6 +35,21 @@ func (r *userRepository) GetByID(id uint) (*model.User, error) {
 	var user model.User
 	err := r.db.First(&user, id).Error
 	return &user, err
+}
+
+func (r *userRepository) GetByIDs(ids []uint) (map[uint]*model.User, error) {
+	result := make(map[uint]*model.User)
+	if len(ids) == 0 {
+		return result, nil
+	}
+	var users []*model.User
+	if err := r.db.Where("id IN ?", ids).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	for _, user := range users {
+		result[user.ID] = user
+	}
+	return result, nil
 }
 
 func (r *userRepository) GetByEmail(email string) (*model.User, error) {

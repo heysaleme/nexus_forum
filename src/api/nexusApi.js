@@ -249,8 +249,20 @@ const auth = {
         return request('/auth/oauth/google', { method: 'GET' });
     },
     async googleOAuthCallback(code, state) {
-        // Exchanges authorization code for a Nexus JWT; stores token on success
         const res = await request('/auth/oauth/google/callback', {
+            method: 'POST',
+            body: JSON.stringify({ code, state }),
+        });
+        if (res.access_token) {
+            setToken(res.access_token);
+        }
+        return res;
+    },
+    async githubOAuthUrl() {
+        return request('/auth/oauth/github', { method: 'GET' });
+    },
+    async githubOAuthCallback(code, state) {
+        const res = await request('/auth/oauth/github/callback', {
             method: 'POST',
             body: JSON.stringify({ code, state }),
         });
@@ -302,13 +314,32 @@ const nexusApi = {
     },
     integrations: {
         Core: {
-            async UploadFile({ file }) {
-                return new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => resolve({ file_url: reader.result });
-                    reader.onerror = reject;
-                    reader.readAsDataURL(file);
+            async UploadFile({ file, category = 'chat/attachments' }) {
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('category', category);
+
+                const token = getToken();
+                const response = await fetch(`${BASE_URL}/upload`, {
+                    method: 'POST',
+                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                    body: formData,
                 });
+
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    const err = new Error(errData.error || `Upload failed (${response.status})`);
+                    err.status = response.status;
+                    throw err;
+                }
+
+                const data = await response.json();
+                let url = data.file_url || data.url;
+                if (url && url.startsWith('/')) {
+                    const origin = BASE_URL.replace(/\/api\/?$/, '');
+                    url = `${origin}${url}`;
+                }
+                return { file_url: url, mime_type: data.mime_type, filename: data.filename };
             },
         },
     },

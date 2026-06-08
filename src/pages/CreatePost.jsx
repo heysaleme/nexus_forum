@@ -77,7 +77,7 @@ export default function CreatePost() {
         const file = e.target.files[0];
         if (!file) return;
         setUploading(true);
-        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file });
+        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'posts/images' });
         setMediaUrls(prev => [...prev, file_url]);
         setUploading(false);
     };
@@ -95,7 +95,7 @@ export default function CreatePost() {
         }
         setUploading(true);
         try {
-            const { file_url } = await nexusApi.integrations.Core.UploadFile({ file });
+            const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'posts/videos' });
             setMediaUrls([file_url]);
         } catch {
             toast({ title: 'Не удалось загрузить видео', variant: 'destructive' });

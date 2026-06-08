@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -16,10 +17,25 @@ type Config struct {
 	// Google OAuth (optional — features disabled when empty)
 	GoogleClientID     string
 	GoogleClientSecret string
-	FrontendURL        string // e.g. http://localhost:5173 — used to build OAuth redirect URIs
+
+	// GitHub OAuth (optional — features disabled when empty)
+	GithubClientID     string
+	GithubClientSecret string
+
+	FrontendURL string // e.g. http://localhost:5173 — used to build OAuth redirect URIs
 
 	// Cloudflare Turnstile (optional — CAPTCHA skipped when empty)
 	TurnstileSecret string
+
+	// Object storage (MinIO S3-compatible; falls back to local ./uploads)
+	MinIOEndpoint   string
+	MinIOAccessKey  string
+	MinIOSecretKey  string
+	MinIOBucket     string
+	MinIOUseSSL     bool
+	MinIOPublicURL  string // e.g. http://localhost:9000
+	PublicURL       string // API public origin for local file URLs, e.g. http://localhost:8080
+	LocalUploadDir  string
 }
 
 func LoadConfig() (*Config, error) {
@@ -64,8 +80,26 @@ func LoadConfig() (*Config, error) {
 		SqliteDB:           sqliteDB,
 		GoogleClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+		GithubClientID:     os.Getenv("GITHUB_CLIENT_ID"),
+		GithubClientSecret: os.Getenv("GITHUB_CLIENT_SECRET"),
 		FrontendURL:        frontendURL,
 		TurnstileSecret:    os.Getenv("CLOUDFLARE_TURNSTILE_SECRET"),
+		MinIOEndpoint:      os.Getenv("MINIO_ENDPOINT"),
+		MinIOAccessKey:     os.Getenv("MINIO_ACCESS_KEY"),
+		MinIOSecretKey:     os.Getenv("MINIO_SECRET_KEY"),
+		MinIOBucket:        envOr("MINIO_BUCKET", "nexus-forum"),
+		MinIOUseSSL:        strings.EqualFold(os.Getenv("MINIO_USE_SSL"), "true"),
+		MinIOPublicURL:     envOr("MINIO_PUBLIC_URL", "http://localhost:9000"),
+		PublicURL:          envOr("PUBLIC_URL", "http://localhost:"+port),
+		LocalUploadDir:     envOr("LOCAL_UPLOAD_DIR", "./uploads"),
 	}, nil
 }
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 

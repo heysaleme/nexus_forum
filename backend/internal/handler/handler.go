@@ -19,6 +19,7 @@ type Handlers struct {
 	NotifService    service.NotificationService
 	ModService      service.ModerationService
 	Analytics       service.AnalyticsService
+	UploadService   service.UploadService
 	WSHub           *WSHub
 	TurnstileSecret string // empty = Turnstile disabled
 }
@@ -33,6 +34,7 @@ func NewHandlers(
 	notif service.NotificationService,
 	mod service.ModerationService,
 	analytics service.AnalyticsService,
+	upload service.UploadService,
 	wsHub *WSHub,
 	turnstileSecret string,
 ) *Handlers {
@@ -46,6 +48,7 @@ func NewHandlers(
 		NotifService:    notif,
 		ModService:      mod,
 		Analytics:       analytics,
+		UploadService:   upload,
 		WSHub:           wsHub,
 		TurnstileSecret: turnstileSecret,
 	}

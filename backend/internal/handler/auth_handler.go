@@ -104,6 +104,10 @@ func (h *Handlers) UpdateMe(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if isBase64DataURL(req.AvatarURL) || isBase64DataURL(req.BannerURL) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "upload avatars/banners via /api/upload; base64 data URLs are not allowed"})
+		return
+	}
 
 	userReq := model.User{
 		Username:     req.Username,

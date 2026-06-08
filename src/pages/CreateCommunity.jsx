@@ -39,7 +39,7 @@ export default function CreateCommunity() {
         const file = e.target.files[0];
         if (!file) return;
         setUploadingAvatar(true);
-        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file });
+        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'community/avatars' });
         setAvatarUrl(file_url);
         setUploadingAvatar(false);
     };
@@ -48,7 +48,7 @@ export default function CreateCommunity() {
         const file = e.target.files[0];
         if (!file) return;
         setUploadingBanner(true);
-        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file });
+        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'community/banners' });
         setBannerUrl(file_url);
         setUploadingBanner(false);
     };

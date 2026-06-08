@@ -132,7 +132,7 @@ export default function Settings() {
         const file = e.target.files[0];
         if (!file) return;
         setUploading(true);
-        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file });
+        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'profile/avatars' });
         setProfile(prev => ({ ...prev, avatar_url: file_url }));
         setUploading(false);
     };
@@ -141,7 +141,7 @@ export default function Settings() {
         const file = e.target.files[0];
         if (!file) return;
         setUploading(true);
-        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file });
+        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'profile/banners' });
         setProfile(prev => ({ ...prev, banner_url: file_url }));
         setUploading(false);
     };

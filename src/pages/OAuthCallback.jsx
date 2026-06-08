@@ -12,7 +12,7 @@ import { Loader2 } from "lucide-react";
  *
  * Route: /auth/callback/google
  */
-export default function OAuthCallback() {
+export default function OAuthCallback({ provider = "google" }) {
     const navigate = useNavigate();
     const [error, setError] = useState("");
 
@@ -26,7 +26,11 @@ export default function OAuthCallback() {
             return;
         }
 
-        nexusApi.auth.googleOAuthCallback(code, state)
+        const callback = provider === "github"
+            ? nexusApi.auth.githubOAuthCallback(code, state)
+            : nexusApi.auth.googleOAuthCallback(code, state);
+
+        callback
             .then(() => {
                 // Token is already stored by googleOAuthCallback — navigate home
                 navigate("/", { replace: true });
@@ -34,7 +38,7 @@ export default function OAuthCallback() {
             .catch((err) => {
                 setError(err.message || "Authentication failed. Please try again.");
             });
-    }, [navigate]);
+    }, [navigate, provider]);
 
     if (error) {
         return (

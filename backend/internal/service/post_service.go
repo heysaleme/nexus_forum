@@ -22,6 +22,8 @@ type PostService interface {
 	UnsavePost(userID, postID uint) error
 	GetSavedByUser(userID uint) ([]*model.SavedPost, error)
 	GetVote(userID, postID uint) (*model.Vote, error)
+	GetVotesForPosts(userID uint, postIDs []uint) map[uint]int
+	IncrementViews(postID uint) error
 	Search(query string, limit int, viewerID uint) ([]*model.Post, error)
 }
 
@@ -230,6 +232,14 @@ func (s *postService) Vote(userID, postID uint, value int) error {
 
 func (s *postService) GetVote(userID, postID uint) (*model.Vote, error) {
 	return s.voteRepo.GetVote(userID, "post", postID)
+}
+
+func (s *postService) GetVotesForPosts(userID uint, postIDs []uint) map[uint]int {
+	return s.voteRepo.GetVotesForEntities(userID, "post", postIDs)
+}
+
+func (s *postService) IncrementViews(postID uint) error {
+	return s.repo.IncrementViews(postID)
 }
 
 func (s *postService) SavePost(userID, postID uint) error {

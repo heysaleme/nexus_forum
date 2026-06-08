@@ -6,8 +6,8 @@ import (
 
 type Post struct {
 	ID           uint   `gorm:"primaryKey;autoIncrement" json:"id"`
-	CommunityID  uint   `gorm:"not null" json:"community_id"`
-	AuthorID     uint   `gorm:"not null" json:"author_id"`
+	CommunityID  uint   `gorm:"not null;index" json:"community_id"`
+	AuthorID     uint   `gorm:"not null;index:idx_posts_author_status,priority:1" json:"author_id"`
 	Title        string `gorm:"not null" json:"title"`
 	Content      string `json:"content"`
 	Type         string `gorm:"default:text" json:"type"` // "text", "image", "link", "poll"
@@ -16,7 +16,7 @@ type Post struct {
 	Downvotes    int    `gorm:"default:0" json:"downvotes"`
 	Views        int    `gorm:"default:0" json:"views"`
 	CommentCount int    `gorm:"default:0" json:"comment_count"`
-	Status       string `gorm:"default:published" json:"status"` // "draft", "published", "removed"
+	Status       string `gorm:"default:published;index:idx_posts_author_status,priority:2" json:"status"` // "draft", "published", "removed"
 	MediaUrls    string `gorm:"type:text" json:"media_urls"`     // JSON array of strings
 	LinkUrl      string `json:"link_url"`
 	Tags         string `gorm:"type:text" json:"tags"` // JSON array of strings

@@ -546,29 +546,12 @@ export default function Chats() {
             return;
         }
 
-        const formData = new FormData();
-        formData.append('file', file);
-
         setUploading(true);
         try {
-            const token = localStorage.getItem('nexus_forum_session_token');
-            const response = await fetch(`${nexusApi.BASE_URL}/upload`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                },
-                body: formData
-            });
-
-            if (!response.ok) {
-                const errData = await response.json().catch(() => ({}));
-                throw new Error(errData.error || 'Failed to upload');
-            }
-
-            const data = await response.json();
-            const type = data.mime_type.startsWith('image/') ? 'image' : 'file';
+            const data = await nexusApi.integrations.Core.UploadFile({ file, category: 'chat/attachments' });
+            const type = data.mime_type?.startsWith('image/') ? 'image' : 'file';
             setAttachment({
-                url: data.url,
+                url: data.file_url,
                 name: data.filename,
                 type: type
             });
