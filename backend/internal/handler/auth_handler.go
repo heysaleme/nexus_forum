@@ -44,6 +44,8 @@ func (h *Handlers) VerifyOTP(c *gin.Context) {
 	}
 
 	slog.Info("user registration completed via otp", "email", req.Email, "user_id", user.ID)
+	uid := user.ID
+	_ = h.Analytics.Track(&uid, "register", "user", &uid, "")
 	c.JSON(http.StatusOK, gin.H{
 		"access_token": token,
 		"user":         user,
@@ -65,6 +67,8 @@ func (h *Handlers) Login(c *gin.Context) {
 	}
 
 	slog.Info("user logged in successfully", "email", req.Email, "user_id", user.ID, "role", user.Role)
+	uid := user.ID
+	_ = h.Analytics.Track(&uid, "login", "user", &uid, "")
 	c.JSON(http.StatusOK, gin.H{
 		"access_token": token,
 		"user":         user,

@@ -3,6 +3,7 @@ package repository
 import (
 	"nexus-forum-backend/internal/model"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -12,6 +13,7 @@ type AnalyticsRepository interface {
 	CountEvents(eventType string, since, until int64) (int64, error)
 	GetTopPosts(limit int) ([]*model.Post, error)
 	GetUserGrowth(days int) ([]map[string]interface{}, error)
+	CountActiveUsers(since time.Time) (int64, error)
 }
 
 type analyticsRepository struct {
@@ -71,4 +73,13 @@ func (r *analyticsRepository) GetUserGrowth(days int) ([]map[string]interface{},
 		})
 	}
 	return rows, err
+}
+
+func (r *analyticsRepository) CountActiveUsers(since time.Time) (int64, error) {
+	var count int64
+	err := r.db.Model(&model.AnalyticsEvent{}).
+		Select("COUNT(DISTINCT user_id)").
+		Where("user_id IS NOT NULL AND created_at >= ?", since).
+		Scan(&count).Error
+	return count, err
 }

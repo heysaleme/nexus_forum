@@ -1,6 +1,8 @@
 package service
 
 import (
+	"time"
+
 	"nexus-forum-backend/internal/model"
 	"nexus-forum-backend/internal/repository"
 )
@@ -45,6 +47,8 @@ func (s *analyticsService) GetDashboard() (map[string]interface{}, error) {
 	totalPostViews, _ := s.repo.CountEvents("page_view", 0, 0)
 	topPosts, _ := s.repo.GetTopPosts(10)
 	userGrowth, _ := s.repo.GetUserGrowth(30)
+	dau, _ := s.repo.CountActiveUsers(time.Now().Add(-24 * time.Hour))
+	mau, _ := s.repo.CountActiveUsers(time.Now().Add(-30 * 24 * time.Hour))
 
 	// Count total users directly from user repo via List
 	allUsers, _ := s.userRepo.List("", 10000)
@@ -55,6 +59,8 @@ func (s *analyticsService) GetDashboard() (map[string]interface{}, error) {
 		"total_registrations_tracked": totalUsers,
 		"total_logins_tracked":        totalLogins,
 		"total_page_views":            totalPostViews,
+		"dau":                         dau,
+		"mau":                         mau,
 		"top_posts":                   topPosts,
 		"user_growth_30d":             userGrowth,
 	}, nil

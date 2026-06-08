@@ -522,8 +522,10 @@ func TestAnalyticsService_TrackAndDashboard(t *testing.T) {
 
 	// Track events
 	userID := uint(1)
+	userID2 := uint(2)
 	_ = analyticsSvc.Track(&userID, "page_view", "post", nil, "")
 	_ = analyticsSvc.Track(&userID, "page_view", "post", nil, "")
+	_ = analyticsSvc.Track(&userID2, "login", "user", nil, "")
 	_ = analyticsSvc.Track(nil, "page_view", "community", nil, "")
 
 	// GetDashboard should run without error
@@ -539,5 +541,20 @@ func TestAnalyticsService_TrackAndDashboard(t *testing.T) {
 	count, _ := analyticsRepo.CountEvents("page_view", 0, 0)
 	if count != 3 {
 		t.Errorf("expected 3 page_view events, got %d", count)
+	}
+
+	dau, ok := dashboard["dau"].(int64)
+	if !ok {
+		t.Fatalf("expected dau int64 in dashboard, got %T", dashboard["dau"])
+	}
+	if dau != 2 {
+		t.Errorf("expected dau=2, got %d", dau)
+	}
+	mau, ok := dashboard["mau"].(int64)
+	if !ok {
+		t.Fatalf("expected mau int64 in dashboard, got %T", dashboard["mau"])
+	}
+	if mau != 2 {
+		t.Errorf("expected mau=2, got %d", mau)
 	}
 }
