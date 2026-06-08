@@ -36,6 +36,7 @@ func setupDB(t *testing.T) *gorm.DB {
 		&model.AnalyticsEvent{},
 		&model.Report{},
 		&model.PasswordResetToken{},
+		&model.RefreshToken{},
 	)
 	if err != nil {
 		t.Fatalf("failed to auto-migrate: %v", err)
@@ -57,7 +58,7 @@ func TestAuthService_RegisterAndVerifyOTP(t *testing.T) {
 	userRepo := repository.NewUserRepository(db)
 	modRepo := repository.NewModerationRepository(db)
 	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, "test-secret-1234")
+	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "test-secret-1234")
 
 	email := "alice@example.com"
 	pass := "securepass"
@@ -73,7 +74,7 @@ func TestAuthService_RegisterAndVerifyOTP(t *testing.T) {
 	}
 
 	// Verify OTP
-	token, user, err := authSvc.VerifyOTP(email, "123456")
+	token, refresh, user, err := authSvc.VerifyOTP(email, "123456")
 	if err != nil {
 		t.Fatalf("VerifyOTP failed: %v", err)
 	}
@@ -82,6 +83,9 @@ func TestAuthService_RegisterAndVerifyOTP(t *testing.T) {
 	}
 	if token == "" {
 		t.Error("expected non-empty JWT token")
+	}
+	if refresh == "" {
+		t.Error("expected non-empty refresh token")
 	}
 	if user.Level != 1 || user.XP != 0 {
 		t.Errorf("new user should have level=1 xp=0, got level=%d xp=%d", user.Level, user.XP)
@@ -93,16 +97,16 @@ func TestAuthService_Login(t *testing.T) {
 	userRepo := repository.NewUserRepository(db)
 	modRepo := repository.NewModerationRepository(db)
 	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, "test-secret-5678")
+	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "test-secret-5678")
 
 	email := "bob@example.com"
 	pass := "hunter2"
 
 	_ = authSvc.Register(email, pass)
-	_, user, _ := authSvc.VerifyOTP(email, "123456")
+	_, _, user, _ := authSvc.VerifyOTP(email, "123456")
 
 	// Login success
-	loginToken, loginUser, err := authSvc.Login(email, pass)
+	loginToken, _, loginUser, err := authSvc.Login(email, pass)
 	if err != nil {
 		t.Fatalf("Login failed: %v", err)
 	}
@@ -114,7 +118,7 @@ func TestAuthService_Login(t *testing.T) {
 	}
 
 	// Wrong password
-	_, _, err = authSvc.Login(email, "wrongpass")
+	_, _, _, err = authSvc.Login(email, "wrongpass")
 	if err == nil {
 		t.Error("expected error for wrong password")
 	}
@@ -122,9 +126,33 @@ func TestAuthService_Login(t *testing.T) {
 	// Banned user
 	user.IsBanned = true
 	_ = userRepo.Update(user)
-	_, _, err = authSvc.Login(email, pass)
+	_, _, _, err = authSvc.Login(email, pass)
 	if err == nil {
 		t.Error("expected error for banned user login")
+	}
+}
+
+func TestAuthService_RefreshToken(t *testing.T) {
+	db := setupDB(t)
+	userRepo := repository.NewUserRepository(db)
+	modRepo := repository.NewModerationRepository(db)
+	resetRepo := repository.NewPasswordResetRepository(db)
+	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "refresh-secret")
+
+	_ = authSvc.Register("refresh@example.com", "pass1234")
+	_, refreshToken, _, _ := authSvc.VerifyOTP("refresh@example.com", "123456")
+
+	newAccess, newRefresh, err := authSvc.RefreshAccessToken(refreshToken)
+	if err != nil {
+		t.Fatalf("RefreshAccessToken failed: %v", err)
+	}
+	if newAccess == "" || newRefresh == "" {
+		t.Fatal("expected new access and refresh tokens")
+	}
+
+	_, _, err = authSvc.RefreshAccessToken(refreshToken)
+	if err == nil {
+		t.Error("expected error when reusing revoked refresh token")
 	}
 }
 
@@ -133,14 +161,14 @@ func TestAuthService_PasswordReset(t *testing.T) {
 	userRepo := repository.NewUserRepository(db)
 	modRepo := repository.NewModerationRepository(db)
 	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, "reset-secret")
+	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "reset-secret")
 
 	email := "reset@example.com"
 	pass := "oldpass123"
 	newPass := "newpass456"
 
 	_ = authSvc.Register(email, pass)
-	_, _, _ = authSvc.VerifyOTP(email, "123456")
+	_, _, _, _ = authSvc.VerifyOTP(email, "123456")
 
 	token, err := authSvc.RequestPasswordReset(email)
 	if err != nil {
@@ -154,12 +182,12 @@ func TestAuthService_PasswordReset(t *testing.T) {
 		t.Fatalf("ResetPassword failed: %v", err)
 	}
 
-	_, _, err = authSvc.Login(email, pass)
+	_, _, _, err = authSvc.Login(email, pass)
 	if err == nil {
 		t.Error("expected login to fail with old password")
 	}
 
-	_, _, err = authSvc.Login(email, newPass)
+	_, _, _, err = authSvc.Login(email, newPass)
 	if err != nil {
 		t.Fatalf("login with new password failed: %v", err)
 	}
@@ -174,10 +202,10 @@ func TestAuthService_ValidateToken(t *testing.T) {
 	userRepo := repository.NewUserRepository(db)
 	modRepo := repository.NewModerationRepository(db)
 	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, "my-secret")
+	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "my-secret")
 
 	_ = authSvc.Register("carol@example.com", "pass")
-	token, _, _ := authSvc.VerifyOTP("carol@example.com", "123456")
+	token, _, _, _ := authSvc.VerifyOTP("carol@example.com", "123456")
 
 	claims, err := authSvc.ValidateToken(token)
 	if err != nil {
@@ -205,11 +233,11 @@ func TestUserService_FollowAndXP(t *testing.T) {
 	notifRepo := repository.NewNotificationRepository(db)
 	modRepo := repository.NewModerationRepository(db)
 	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, "xp-secret")
+	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "xp-secret")
 	userSvc := service.NewUserService(userRepo, followRepo, notifRepo, modRepo)
 
 	_ = authSvc.Register("dave@example.com", "pass")
-	_, user1, _ := authSvc.VerifyOTP("dave@example.com", "123456")
+	_, _, user1, _ := authSvc.VerifyOTP("dave@example.com", "123456")
 
 	user2 := &model.User{Username: "eve", Email: "eve@example.com", PasswordHash: "hashed", ProfileTheme: "default"}
 	_ = userRepo.Create(user2)
@@ -247,11 +275,11 @@ func TestUserService_LevelProgression(t *testing.T) {
 	notifRepo := repository.NewNotificationRepository(db)
 	modRepo := repository.NewModerationRepository(db)
 	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, "lvl-secret")
+	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "lvl-secret")
 	userSvc := service.NewUserService(userRepo, followRepo, notifRepo, modRepo)
 
 	_ = authSvc.Register("frank@example.com", "pass")
-	_, user, _ := authSvc.VerifyOTP("frank@example.com", "123456")
+	_, _, user, _ := authSvc.VerifyOTP("frank@example.com", "123456")
 
 	// Manually set XP to 146 (should be level 2 after next XP-granting action)
 	user.XP = 146
@@ -286,11 +314,11 @@ func TestPostService_CreateAndVote(t *testing.T) {
 	notifRepo := repository.NewNotificationRepository(db)
 	modRepo := repository.NewModerationRepository(db)
 	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, "post-secret")
+	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "post-secret")
 	postSvc := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, savedRepo, notifRepo)
 
 	_ = authSvc.Register("hannah@example.com", "pass")
-	_, author, _ := authSvc.VerifyOTP("hannah@example.com", "123456")
+	_, _, author, _ := authSvc.VerifyOTP("hannah@example.com", "123456")
 
 	comm := &model.Community{Name: "TestComm", Slug: "test-comm", OwnerID: author.ID, Visibility: "public"}
 	_ = commRepo.Create(comm)
@@ -349,11 +377,11 @@ func TestPostService_SaveAndUnsave(t *testing.T) {
 	notifRepo := repository.NewNotificationRepository(db)
 	modRepo := repository.NewModerationRepository(db)
 	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, "save-secret")
+	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "save-secret")
 	postSvc := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, savedRepo, notifRepo)
 
 	_ = authSvc.Register("julia@example.com", "pass")
-	_, user, _ := authSvc.VerifyOTP("julia@example.com", "123456")
+	_, _, user, _ := authSvc.VerifyOTP("julia@example.com", "123456")
 
 	comm := &model.Community{Name: "SaveComm", Slug: "save-comm", OwnerID: user.ID, Visibility: "public"}
 	_ = commRepo.Create(comm)
@@ -397,12 +425,12 @@ func TestCommentService_CreateAndVote(t *testing.T) {
 	notifRepo := repository.NewNotificationRepository(db)
 	modRepo := repository.NewModerationRepository(db)
 	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, "comment-secret")
+	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "comment-secret")
 	postSvc := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, savedRepo, notifRepo)
 	commentSvc := service.NewCommentService(commentRepo, userRepo, postRepo, voteRepo, notifRepo, commRepo)
 
 	_ = authSvc.Register("kate@example.com", "pass")
-	_, author, _ := authSvc.VerifyOTP("kate@example.com", "123456")
+	_, _, author, _ := authSvc.VerifyOTP("kate@example.com", "123456")
 	commenter := &model.User{Username: "leo", Email: "leo@example.com", PasswordHash: "h", ProfileTheme: "default"}
 	_ = userRepo.Create(commenter)
 
@@ -463,13 +491,13 @@ func TestModerationService_BanAndUnban(t *testing.T) {
 	keywordFilterRepo := repository.NewKeywordFilterRepository(db)
 
 	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, "mod-secret")
+	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "mod-secret")
 	postSvc := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, savedRepo, notifRepo)
 	modSvc := service.NewModerationService(modRepo, userRepo, postRepo, commentRepo, commRepo, notifRepo, keywordFilterRepo)
 
 	// Create admin
 	_ = authSvc.Register("admin@example.com", "pass")
-	_, admin, _ := authSvc.VerifyOTP("admin@example.com", "123456")
+	_, _, admin, _ := authSvc.VerifyOTP("admin@example.com", "123456")
 	admin.Role = "admin"
 	_ = userRepo.Update(admin)
 

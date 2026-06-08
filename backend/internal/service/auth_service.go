@@ -16,13 +16,14 @@ import (
 
 type AuthService interface {
 	Register(email, password string) error
-	VerifyOTP(email, otpCode string) (string, *model.User, error)
-	Login(email, password string) (string, *model.User, error)
+	VerifyOTP(email, otpCode string) (accessToken, refreshToken string, user *model.User, err error)
+	Login(email, password string) (accessToken, refreshToken string, user *model.User, err error)
+	RefreshAccessToken(refreshToken string) (accessToken, newRefreshToken string, err error)
 	ValidateToken(tokenStr string) (*Claims, error)
 	ChangePassword(userID uint, oldPassword, newPassword string) error
 	RequestPasswordReset(email string) (string, error)
 	ResetPassword(resetToken, newPassword string) error
-	FindOrCreateOAuthUser(provider, sub, email, name, avatarURL string) (*model.User, string, error)
+	FindOrCreateOAuthUser(provider, sub, email, name, avatarURL string) (*model.User, string, string, error)
 }
 
 // In-memory pending registration store for OTP code verification (simulating Redis/DB)
@@ -31,12 +32,13 @@ var pendingRegistrations = make(map[string]string) // email -> hashed_password
 type authService struct {
 	repo       repository.UserRepository
 	modRepo    repository.ModerationRepository
-	resetRepo  repository.PasswordResetRepository
-	jwtSecret  string
+	resetRepo   repository.PasswordResetRepository
+	refreshRepo repository.RefreshTokenRepository
+	jwtSecret   string
 }
 
-func NewAuthService(repo repository.UserRepository, modRepo repository.ModerationRepository, resetRepo repository.PasswordResetRepository, jwtSecret string) AuthService {
-	return &authService{repo: repo, modRepo: modRepo, resetRepo: resetRepo, jwtSecret: jwtSecret}
+func NewAuthService(repo repository.UserRepository, modRepo repository.ModerationRepository, resetRepo repository.PasswordResetRepository, refreshRepo repository.RefreshTokenRepository, jwtSecret string) AuthService {
+	return &authService{repo: repo, modRepo: modRepo, resetRepo: resetRepo, refreshRepo: refreshRepo, jwtSecret: jwtSecret}
 }
 
 func (s *authService) Register(email, password string) error {
@@ -57,14 +59,14 @@ func (s *authService) Register(email, password string) error {
 	return nil
 }
 
-func (s *authService) VerifyOTP(email, otpCode string) (string, *model.User, error) {
+func (s *authService) VerifyOTP(email, otpCode string) (string, string, *model.User, error) {
 	if otpCode != "123456" {
-		return "", nil, errors.New("invalid OTP code, use demo code 123456")
+		return "", "", nil, errors.New("invalid OTP code, use demo code 123456")
 	}
 
 	hashedPassword, ok := pendingRegistrations[email]
 	if !ok {
-		return "", nil, errors.New("no pending registration for this email")
+		return "", "", nil, errors.New("no pending registration for this email")
 	}
 
 	// Create User
@@ -83,16 +85,16 @@ func (s *authService) VerifyOTP(email, otpCode string) (string, *model.User, err
 
 	err := s.repo.Create(user)
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
 
 	delete(pendingRegistrations, email)
 
-	token, err := s.generateJWT(user)
-	return token, user, err
+	access, refresh, err := s.issueTokenPair(user)
+	return access, refresh, user, err
 }
 
-func (s *authService) Login(email, password string) (string, *model.User, error) {
+func (s *authService) Login(email, password string) (string, string, *model.User, error) {
 	user, err := s.repo.GetByEmail(email)
 	if err != nil {
 		_ = s.modRepo.CreateLog(&model.ModerationLog{
@@ -102,7 +104,7 @@ func (s *authService) Login(email, password string) (string, *model.User, error)
 			Action:     "login_failed",
 			Details:    "Failed login attempt (email not found) for: " + email,
 		})
-		return "", nil, errors.New("invalid email or password")
+		return "", "", nil, errors.New("invalid email or password")
 	}
 
 	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
@@ -114,7 +116,7 @@ func (s *authService) Login(email, password string) (string, *model.User, error)
 			Action:     "login_failed",
 			Details:    "Failed login attempt (invalid password) for user ID: " + strconvFormatUint(user.ID),
 		})
-		return "", nil, errors.New("invalid email or password")
+		return "", "", nil, errors.New("invalid email or password")
 	}
 
 	if user.IsBanned {
@@ -125,10 +127,10 @@ func (s *authService) Login(email, password string) (string, *model.User, error)
 			Action:     "login_failed",
 			Details:    "Failed login attempt (user is banned) for user ID: " + strconvFormatUint(user.ID),
 		})
-		return "", nil, errors.New("this account is banned")
+		return "", "", nil, errors.New("this account is banned")
 	}
 
-	token, err := s.generateJWT(user)
+	access, refresh, err := s.issueTokenPair(user)
 	if err == nil {
 		_ = s.modRepo.CreateLog(&model.ModerationLog{
 			ActorID:    user.ID,
@@ -138,7 +140,28 @@ func (s *authService) Login(email, password string) (string, *model.User, error)
 			Details:    "User logged in successfully",
 		})
 	}
-	return token, user, err
+	return access, refresh, user, err
+}
+
+func (s *authService) RefreshAccessToken(refreshToken string) (string, string, error) {
+	row, err := s.refreshRepo.GetValidToken(refreshToken)
+	if err != nil {
+		return "", "", errors.New("invalid or expired refresh token")
+	}
+
+	user, err := s.repo.GetByID(row.UserID)
+	if err != nil {
+		return "", "", errors.New("user not found")
+	}
+	if user.IsBanned {
+		return "", "", errors.New("this account is banned")
+	}
+
+	if err := s.refreshRepo.Revoke(row.ID); err != nil {
+		return "", "", err
+	}
+
+	return s.issueTokenPair(user)
 }
 
 func (s *authService) ValidateToken(tokenStr string) (*Claims, error) {
@@ -158,6 +181,35 @@ func (s *authService) ValidateToken(tokenStr string) (*Claims, error) {
 	return nil, errors.New("invalid token claims")
 }
 
+func (s *authService) issueTokenPair(user *model.User) (string, string, error) {
+	access, err := s.generateJWT(user)
+	if err != nil {
+		return "", "", err
+	}
+	refresh, err := s.createRefreshToken(user.ID)
+	if err != nil {
+		return "", "", err
+	}
+	return access, refresh, nil
+}
+
+func (s *authService) createRefreshToken(userID uint) (string, error) {
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(tokenBytes)
+	row := &model.RefreshToken{
+		UserID:    userID,
+		Token:     token,
+		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
+	}
+	if err := s.refreshRepo.Create(row); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
 func (s *authService) generateJWT(user *model.User) (string, error) {
 	claims := Claims{
 		UserID:   user.ID,
@@ -175,12 +227,12 @@ func (s *authService) generateJWT(user *model.User) (string, error) {
 
 // FindOrCreateOAuthUser finds an existing user by OAuth identity or creates one.
 // OAuth users never need a password — a random secure hash is stored.
-func (s *authService) FindOrCreateOAuthUser(provider, sub, email, name, avatarURL string) (*model.User, string, error) {
+func (s *authService) FindOrCreateOAuthUser(provider, sub, email, name, avatarURL string) (*model.User, string, string, error) {
 	// 1. Try by (provider, subject) — most precise lookup
 	user, err := s.repo.GetByOAuth(provider, sub)
 	if err == nil {
-		token, err := s.generateJWT(user)
-		return user, token, err
+		access, refresh, err := s.issueTokenPair(user)
+		return user, access, refresh, err
 	}
 
 	// 2. Try by email — link existing account to OAuth identity
@@ -193,8 +245,8 @@ func (s *authService) FindOrCreateOAuthUser(provider, sub, email, name, avatarUR
 				user.AvatarURL = avatarURL
 			}
 			_ = s.repo.Update(user)
-			token, err := s.generateJWT(user)
-			return user, token, err
+			access, refresh, err := s.issueTokenPair(user)
+			return user, access, refresh, err
 		}
 	}
 
@@ -229,11 +281,11 @@ func (s *authService) FindOrCreateOAuthUser(provider, sub, email, name, avatarUR
 	}
 
 	if err := s.repo.Create(newUser); err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 
-	token, err := s.generateJWT(newUser)
-	return newUser, token, err
+	access, refresh, err := s.issueTokenPair(newUser)
+	return newUser, access, refresh, err
 }
 
 // deriveUsername produces a clean username from display name or email.

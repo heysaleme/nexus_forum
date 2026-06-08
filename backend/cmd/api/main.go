@@ -69,6 +69,7 @@ func main() {
 		&model.Report{},
 		&model.KeywordFilter{},
 		&model.PasswordResetToken{},
+		&model.RefreshToken{},
 	)
 	if err != nil {
 		log.Fatalf("failed to auto migrate tables: %v", err)
@@ -96,8 +97,9 @@ func main() {
 	analyticsRepo := repository.NewAnalyticsRepository(db)
 	keywordFilterRepo := repository.NewKeywordFilterRepository(db)
 	resetRepo := repository.NewPasswordResetRepository(db)
+	refreshRepo := repository.NewRefreshTokenRepository(db)
 
-	authService := service.NewAuthService(userRepo, modRepo, resetRepo, cfg.JWTSecret)
+	authService := service.NewAuthService(userRepo, modRepo, resetRepo, refreshRepo, cfg.JWTSecret)
 	userService := service.NewUserService(userRepo, followRepo, notifRepo, modRepo)
 	commService := service.NewCommunityService(commRepo, userRepo)
 	postService := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, savedRepo, notifRepo)
@@ -174,6 +176,7 @@ func main() {
 		api.POST("/auth/login", handlers.Login)
 		api.POST("/auth/forgot-password", handlers.ForgotPassword)
 		api.POST("/auth/reset-password", handlers.ResetPassword)
+		api.POST("/auth/refresh", handlers.RefreshToken)
 
 		// OAuth endpoints (public — no JWT required)
 		api.GET("/auth/oauth/config", handler.GetOAuthProviderConfig(oauthCfg))

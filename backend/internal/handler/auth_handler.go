@@ -36,7 +36,7 @@ func (h *Handlers) VerifyOTP(c *gin.Context) {
 		return
 	}
 
-	token, user, err := h.AuthService.VerifyOTP(req.Email, req.OTPCode)
+	accessToken, refreshToken, user, err := h.AuthService.VerifyOTP(req.Email, req.OTPCode)
 	if err != nil {
 		slog.Error("otp verification failed", "email", req.Email, "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -47,8 +47,9 @@ func (h *Handlers) VerifyOTP(c *gin.Context) {
 	uid := user.ID
 	_ = h.Analytics.Track(&uid, "register", "user", &uid, "")
 	c.JSON(http.StatusOK, gin.H{
-		"access_token": token,
-		"user":         user,
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+		"user":          user,
 	})
 }
 
@@ -59,7 +60,7 @@ func (h *Handlers) Login(c *gin.Context) {
 		return
 	}
 
-	token, user, err := h.AuthService.Login(req.Email, req.Password)
+	accessToken, refreshToken, user, err := h.AuthService.Login(req.Email, req.Password)
 	if err != nil {
 		slog.Warn("login attempt failed", "email", req.Email, "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -70,8 +71,9 @@ func (h *Handlers) Login(c *gin.Context) {
 	uid := user.ID
 	_ = h.Analytics.Track(&uid, "login", "user", &uid, "")
 	c.JSON(http.StatusOK, gin.H{
-		"access_token": token,
-		"user":         user,
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+		"user":          user,
 	})
 }
 
@@ -149,6 +151,27 @@ func (h *Handlers) ChangePassword(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func (h *Handlers) RefreshToken(c *gin.Context) {
+	var req struct {
+		RefreshToken string `json:"refresh_token" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	accessToken, refreshToken, err := h.AuthService.RefreshAccessToken(req.RefreshToken)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+	})
 }
 
 func (h *Handlers) ForgotPassword(c *gin.Context) {

@@ -174,7 +174,7 @@ func GoogleOAuthCallback(cfg OAuthConfig, authSvc service.AuthService) gin.Handl
 			return
 		}
 
-		user, nexusToken, err := authSvc.FindOrCreateOAuthUser("google", userInfo.Sub, userInfo.Email, userInfo.Name, userInfo.Picture)
+		user, accessToken, refreshToken, err := authSvc.FindOrCreateOAuthUser("google", userInfo.Sub, userInfo.Email, userInfo.Name, userInfo.Picture)
 		if err != nil {
 			slog.Error("FindOrCreateOAuthUser failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to authenticate user"})
@@ -183,8 +183,9 @@ func GoogleOAuthCallback(cfg OAuthConfig, authSvc service.AuthService) gin.Handl
 
 		slog.Info("google oauth login", "user_id", user.ID, "email", user.Email)
 		c.JSON(http.StatusOK, gin.H{
-			"access_token": nexusToken,
-			"user":         user,
+			"access_token":  accessToken,
+			"refresh_token": refreshToken,
+			"user":          user,
 		})
 	}
 }
