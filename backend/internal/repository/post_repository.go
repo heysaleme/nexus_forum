@@ -49,7 +49,7 @@ func (r *postRepository) Delete(id uint) error {
 
 func (r *postRepository) List(sortSpec string, limit int, viewerID uint) ([]*model.Post, error) {
 	var posts []*model.Post
-	q := r.db.Order(parseSort(sortSpec))
+	q := r.db.Order(parsePostSort(r.db.Dialector.Name(), sortSpec))
 	q = r.applyShadowFilter(q, viewerID)
 	if limit > 0 {
 		q = q.Limit(limit)
@@ -63,7 +63,7 @@ func (r *postRepository) List(sortSpec string, limit int, viewerID uint) ([]*mod
 
 func (r *postRepository) Filter(filter map[string]interface{}, sortSpec string, limit int, viewerID uint) ([]*model.Post, error) {
 	var posts []*model.Post
-	q := r.db.Where(filter).Order(parseSort(sortSpec))
+	q := r.db.Where(filter).Order(parsePostSort(r.db.Dialector.Name(), sortSpec))
 	q = r.applyShadowFilter(q, viewerID)
 	if limit > 0 {
 		q = q.Limit(limit)

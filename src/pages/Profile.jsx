@@ -73,8 +73,8 @@ export default function Profile() {
 
         if (users[0]) setProfileUser(users[0]);
         else if (targetId === currentUser?.id) setProfileUser(currentUser);
-        setPosts(userPosts);
-        setAchievements(userAchievements);
+        setPosts(userPosts || []);
+        setAchievements(userAchievements || []);
 
         if (!isOwn && currentUser) {
             try {
@@ -94,7 +94,7 @@ export default function Profile() {
 
         if (isOwn && currentUser) {
             const saved = await nexusApi.entities.SavedPost.filter({ user_id: currentUser.id });
-            setSavedPosts(saved);
+            setSavedPosts(saved || []);
         }
 
         setLoading(false);
