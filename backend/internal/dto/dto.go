@@ -74,5 +74,7 @@ type CreateChatRoomRequest struct {
 }
 
 type CreateMessageRequest struct {
-	Content string `json:"content" binding:"required"`
+	Content        string `json:"content"`
+	AttachmentURL  string `json:"attachment_url"`
+	AttachmentType string `json:"attachment_type"`
 }

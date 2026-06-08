@@ -23,7 +23,13 @@ type Message struct {
 	SenderUsername string    `json:"sender_username"`
 	SenderAvatar   string    `json:"sender_avatar"`
 	Content        string    `gorm:"not null" json:"content"`
-	MessageType    string    `gorm:"default:text" json:"message_type"` // "text", "image"
-	IsRead         bool      `gorm:"default:false" json:"is_read"`
-	CreatedAt      time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"created_date"`
+	MessageType     string    `gorm:"default:text" json:"message_type"` // "text", "image"
+	IsRead          bool      `gorm:"default:false" json:"is_read"`
+	IsDelivered     bool      `gorm:"default:false" json:"is_delivered"`
+	AttachmentURL   string    `json:"attachment_url"`
+	AttachmentType  string    `json:"attachment_type"`
+	IsEdited        bool      `gorm:"default:false" json:"is_edited"`
+	DeletedForUsers string    `gorm:"type:text;default:'[]'" json:"deleted_for_users"`
+	CreatedAt       time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"created_date"`
 }
+

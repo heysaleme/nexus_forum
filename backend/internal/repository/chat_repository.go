@@ -17,6 +17,7 @@ type ChatRepository interface {
 	MarkRoomMessagesRead(roomID, userID uint) error
 	DeleteMessage(id uint) error
 	GetMessage(id uint) (*model.Message, error)
+	UpdateMessage(msg *model.Message) error
 	DeleteRoom(id uint) error
 }
 
@@ -94,6 +95,10 @@ func (r *chatRepository) GetMessage(id uint) (*model.Message, error) {
 	var msg model.Message
 	err := r.db.First(&msg, id).Error
 	return &msg, err
+}
+
+func (r *chatRepository) UpdateMessage(msg *model.Message) error {
+	return r.db.Save(msg).Error
 }
 
 func (r *chatRepository) DeleteRoom(id uint) error {
