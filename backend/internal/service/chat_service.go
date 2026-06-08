@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"nexus-forum-backend/internal/model"
 	"nexus-forum-backend/internal/repository"
 	"time"
@@ -64,7 +65,7 @@ func (s *chatService) GetMessages(roomID uint, userID uint, limit int) ([]*model
 	if err != nil {
 		return nil, err
 	}
-	var filtered []*model.Message
+	filtered := []*model.Message{}
 	for _, msg := range msgs {
 		var deletedUsers []uint
 		if msg.DeletedForUsers != "" {
@@ -121,6 +122,17 @@ func (s *chatService) SendMessageWithAttachment(senderID, roomID uint, content, 
 	if err != nil {
 		return nil, err
 	}
+
+	log.Printf(
+
+		"AFTER CREATE: ID=%d ROOM=%d CONTENT=%s",
+
+		msg.ID,
+
+		msg.ChatRoomID,
+
+		msg.Content,
+	)
 
 	// Update room last message info
 	room, err := s.repo.GetRoom(roomID)

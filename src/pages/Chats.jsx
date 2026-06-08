@@ -22,7 +22,7 @@ import {
 
 function ChatBubble({ message, isOwn, onEdit, onDelete, canEdit, canDelete }) {
     const [isHovered, setIsHovered] = useState(false);
-    
+
     const formatTime = (dateStr) => {
         if (!dateStr) return '';
         try {
@@ -48,31 +48,30 @@ function ChatBubble({ message, isOwn, onEdit, onDelete, canEdit, canDelete }) {
                 />
             )}
             <div className={`max-w-[75%] px-3.5 py-2.5 rounded-2xl text-sm flex flex-col gap-0.5 ${isOwn
-                    ? 'nexus-gradient text-white rounded-br-sm shadow-nexus'
-                    : 'bg-muted text-foreground rounded-bl-sm'
+                ? 'nexus-gradient text-white rounded-br-sm shadow-nexus'
+                : 'bg-muted text-foreground rounded-bl-sm'
                 }`}>
-                
+
                 {/* Render Attachment if present */}
                 {message.attachment_url && message.attachment_type === 'image' && (
                     <div className="mb-1 rounded-lg overflow-hidden border border-white/10 max-w-sm">
-                        <img 
-                            src={`${nexusApi.BASE_URL.replace('/api', '')}${message.attachment_url}`} 
-                            alt="" 
+                        <img
+                            src={`${nexusApi.BASE_URL.replace('/api', '')}${message.attachment_url}`}
+                            alt=""
                             className="max-h-60 w-full object-cover cursor-pointer hover:scale-102 transition-transform"
                             onClick={() => window.open(`${nexusApi.BASE_URL.replace('/api', '')}${message.attachment_url}`, '_blank')}
                         />
                     </div>
                 )}
                 {message.attachment_url && message.attachment_type !== 'image' && (
-                    <a 
-                        href={`${nexusApi.BASE_URL.replace('/api', '')}${message.attachment_url}`} 
-                        target="_blank" 
-                        rel="noopener noreferrer" 
-                        className={`flex items-center gap-2 mb-1 p-2 rounded-xl text-xs border ${
-                            isOwn 
-                                ? 'bg-white/10 border-white/20 text-white' 
-                                : 'bg-background border-border text-foreground hover:bg-muted/50'
-                        }`}
+                    <a
+                        href={`${nexusApi.BASE_URL.replace('/api', '')}${message.attachment_url}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`flex items-center gap-2 mb-1 p-2 rounded-xl text-xs border ${isOwn
+                            ? 'bg-white/10 border-white/20 text-white'
+                            : 'bg-background border-border text-foreground hover:bg-muted/50'
+                            }`}
                     >
                         <FileText className="w-4 h-4 flex-shrink-0" />
                         <span className="truncate max-w-[150px]">{message.attachment_url.split('_').slice(1).join('_') || 'Файл'}</span>
@@ -138,7 +137,7 @@ export default function Chats() {
     const [searchQuery, setSearchQuery] = useState('');
     // Cache of userId -> userInfo for display
     const [userCache, setUserCache] = useState({});
-    
+
     const wsRef = useRef(null);
     const [isOtherTyping, setIsOtherTyping] = useState(false);
     const typingTimeoutRef = useRef(null);
@@ -164,6 +163,14 @@ export default function Chats() {
             autoStartChat(parseInt(userIdParam));
         }
     }, [user, userIdParam, rooms.length]);
+
+    useEffect(() => {
+        if (!selectedRoom?.id) return;
+        console.log("WS EFFECT START", selectedRoom?.id);
+        return () => {
+            console.log("WS EFFECT CLEANUP", selectedRoom?.id);
+        };
+    }, [selectedRoom?.id]);
 
     useEffect(() => {
         if (!selectedRoom) return;
@@ -206,6 +213,12 @@ export default function Chats() {
         ws.onmessage = (event) => {
             try {
                 const msg = JSON.parse(event.data);
+
+                if (msg.type === 'message') {
+
+                    console.log("WS MESSAGE RAW", JSON.stringify(msg, null, 2));
+                }
+
                 if (msg.room_id !== selectedRoom.id && msg.type !== 'online_status') return;
 
                 if (msg.type === 'message') {
@@ -301,7 +314,7 @@ export default function Chats() {
                 clearTimeout(typingTimeoutRef.current);
             }
         };
-    }, [selectedRoom]);
+    }, [selectedRoom?.id]);
 
     const sendInitialReadReceipt = (socket) => {
         if (socket && socket.readyState === WebSocket.OPEN && messages.length > 0) {
@@ -324,15 +337,15 @@ export default function Chats() {
 
     const loadRooms = async () => {
         setLoading(true);
-        const data = await nexusApi.entities.ChatRoom.filter({ participants: user.id }, '-last_message_at');
-        setRooms(data);
+        const data = await nexusApi.entities.ChatRoom.filter({ participants: user.id }, '-last_message_at') || [];
+        setRooms(data || []);
         // Pre-cache all participant user info
         const allIds = new Set();
         data.forEach(room => {
             try {
                 const pids = JSON.parse(room.participants || '[]');
                 pids.forEach(id => { if (id !== user.id) allIds.add(id); });
-            } catch {}
+            } catch { }
         });
         const cacheUpdates = {};
         await Promise.all([...allIds].map(async (uid) => {
@@ -347,7 +360,7 @@ export default function Chats() {
         try {
             const pids = JSON.parse(room.participants || '[]');
             return pids.find(id => id !== user.id);
-        } catch {}
+        } catch { }
         return null;
     };
 
@@ -380,7 +393,7 @@ export default function Chats() {
             if (otherId && userCache[otherId]) {
                 return userCache[otherId].username || userCache[otherId].full_name || 'Пользователь';
             }
-        } catch {}
+        } catch { }
         return room.name || 'Чат';
     };
 
@@ -391,7 +404,7 @@ export default function Chats() {
             if (otherId && userCache[otherId]) {
                 return userCache[otherId].avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${otherId}`;
             }
-        } catch {}
+        } catch { }
         return `https://api.dicebear.com/7.x/avataaars/svg?seed=${room.name}`;
     };
 
@@ -405,7 +418,7 @@ export default function Chats() {
                         existingRoom = room;
                         break;
                     }
-                } catch (e) {}
+                } catch (e) { }
             }
 
             if (existingRoom) {
@@ -461,7 +474,7 @@ export default function Chats() {
                         existingRoom = room;
                         break;
                     }
-                } catch (e) {}
+                } catch (e) { }
             }
 
             if (existingRoom) {
@@ -527,7 +540,7 @@ export default function Chats() {
     const handleAttachmentSelect = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        
+
         if (file.size > 10 * 1024 * 1024) {
             toast({ title: 'Размер файла превышает 10MB', variant: 'destructive' });
             return;
@@ -580,14 +593,21 @@ export default function Chats() {
     };
 
     const loadMessages = async (roomId) => {
-        const data = await nexusApi.entities.Message.filter({ chat_room_id: roomId }, 'created_date', 50);
-        setMessages(data);
+        const data = await nexusApi.entities.Message.filter(
+            { chat_room_id: roomId },
+            'created_date',
+            50
+        );
+
+        setMessages(data || []);
     };
 
     const markRoomAsRead = async (roomId) => {
+        console.log("MARK ROOM READ", roomId);
+
         await nexusApi.entities.ChatRoom.update(roomId, { unread_count: 0 });
         setRooms(prev => prev.map(room => room.id === roomId ? { ...room, unread_count: 0 } : room));
-        setSelectedRoom(prev => prev?.id === roomId ? { ...prev, unread_count: 0 } : prev);
+
     };
 
     const handleInputChange = (e) => {
@@ -663,7 +683,7 @@ export default function Chats() {
                 type: 'message',
                 content: newMsg.trim()
             }));
-            
+
             wsRef.current.send(JSON.stringify({
                 type: 'typing',
                 content: 'false'
@@ -715,6 +735,16 @@ export default function Chats() {
         );
     }
 
+    useEffect(() => {
+        console.table(
+            messages.map(m => ({
+                id: m.id,
+                sender: m.sender_id,
+                content: m.content
+            }))
+        );
+    }, [messages]);
+
     return (
         <div className="flex h-[calc(100vh-4rem)] md:h-[calc(100vh-3.5rem)]">
             {/* Sidebar */}
@@ -732,11 +762,11 @@ export default function Chats() {
                     </div>
                 </div>
 
-                {loading ? <LoadingSpinner className="py-8" /> : rooms.length === 0 ? (
+                {loading ? <LoadingSpinner className="py-8" /> : (rooms || []).length === 0 ? (
                     <EmptyState icon={MessageCircle} title="Нет диалогов" description="Начни общение с другими пользователями" />
                 ) : (
                     <div className="flex-1 overflow-y-auto">
-                        {rooms.map(room => (
+                        {(rooms || []).map(room => (
                             <button
                                 key={room.id}
                                 onClick={() => setSelectedRoom(room)}
@@ -795,15 +825,15 @@ export default function Chats() {
                             <div className="flex-1 min-w-0">
                                 <p className="text-sm font-bold">{getRoomDisplayName(selectedRoom)}</p>
                                 <p className="text-xs text-muted-foreground transition-all duration-300">
-                                    {isOtherTyping 
+                                    {isOtherTyping
                                         ? <span className="text-primary font-semibold animate-pulse">печатает...</span>
                                         : getOnlineStatusText(selectedRoom)
                                     }
                                 </p>
                             </div>
-                            <Button 
-                                variant="ghost" 
-                                size="icon" 
+                            <Button
+                                variant="ghost"
+                                size="icon"
                                 className="h-8 w-8 rounded-xl text-destructive hover:bg-destructive/10"
                                 onClick={() => handleDeleteRoom(selectedRoom.id)}
                             >
@@ -813,16 +843,16 @@ export default function Chats() {
 
                         {/* Messages */}
                         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                            {messages.map(msg => {
+                            {(messages || []).map(msg => {
                                 const canEdit = msg.sender_id === user.id && msg.content !== 'Сообщение удалено';
                                 const canDelete = msg.sender_id === user.id || (user && (user.role === 'admin' || user.role === 'moderator'));
                                 return (
-                                    <ChatBubble 
-                                        key={msg.id} 
-                                        message={msg} 
-                                        isOwn={msg.sender_id === user.id} 
+                                    <ChatBubble
+                                        key={msg.id ?? `${msg.sender_id}-${msg.created_date}`}
+                                        message={msg}
+                                        isOwn={msg.sender_id === user.id}
                                         onEdit={handleStartEdit}
-                                        onDelete={handleDeleteMessage} 
+                                        onDelete={handleDeleteMessage}
                                         canEdit={canEdit}
                                         canDelete={canDelete}
                                     />
@@ -833,7 +863,7 @@ export default function Chats() {
 
                         {/* Input & Preview Area */}
                         <div className="p-3 border-t border-border/50 bg-card">
-                            
+
                             {/* Editing Message Header */}
                             {editingMessage && (
                                 <div className="flex items-center justify-between p-2 bg-primary/10 rounded-xl mb-2 mx-1 border border-primary/20 text-xs">
@@ -842,7 +872,7 @@ export default function Chats() {
                                         <span className="font-semibold text-primary">Редактирование:</span>
                                         <span className="truncate text-muted-foreground">{editingMessage.content}</span>
                                     </div>
-                                    <button 
+                                    <button
                                         onClick={() => { setEditingMessage(null); setNewMsg(''); }}
                                         className="p-1 hover:bg-muted rounded-full"
                                     >
@@ -896,7 +926,7 @@ export default function Chats() {
                                     disabled={uploading}
                                     className="rounded-xl bg-muted/50 border-0 text-sm h-10 flex-1"
                                 />
-                                
+
                                 <Button
                                     onClick={handleSend}
                                     disabled={(!newMsg.trim() && !attachment) || sending || uploading}
@@ -917,7 +947,7 @@ export default function Chats() {
                     <DialogHeader>
                         <DialogTitle className="font-display font-black text-lg">Начать диалог</DialogTitle>
                     </DialogHeader>
-                    
+
                     <div className="relative my-3">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                         <Input
@@ -929,7 +959,7 @@ export default function Chats() {
                     </div>
 
                     <div className="max-h-[300px] overflow-y-auto space-y-2 mt-2">
-                        {usersList.filter(u => {
+                        {(usersList || []).filter(u => {
                             const query = searchQuery.toLowerCase();
                             return (u.username || '').toLowerCase().includes(query) || (u.full_name || '').toLowerCase().includes(query);
                         }).map(u => (

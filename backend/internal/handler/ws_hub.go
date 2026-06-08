@@ -9,16 +9,18 @@ import (
 	"sync"
 	"time"
 
+	"nexus-forum-backend/internal/model"
+	"nexus-forum-backend/internal/service"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"gorm.io/gorm"
-	"nexus-forum-backend/internal/model"
-	"nexus-forum-backend/internal/service"
 )
 
 // WSMessage is the envelope sent over WebSocket connections.
 type WSMessage struct {
-	Type           string          `json:"type"`     // "message", "ping", "pong", "error", "typing", "read", "online_status", "delivery_status"
+	ID             uint            `json:"id"`
+	Type           string          `json:"type"` // "message", "ping", "pong", "error", "typing", "read", "online_status", "delivery_status"
 	RoomID         uint            `json:"room_id"`
 	SenderID       uint            `json:"sender_id"`
 	SenderName     string          `json:"sender_name"`

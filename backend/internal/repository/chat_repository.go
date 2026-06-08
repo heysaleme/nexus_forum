@@ -40,7 +40,7 @@ func (r *chatRepository) GetRoom(id uint) (*model.ChatRoom, error) {
 }
 
 func (r *chatRepository) GetRoomsByUser(userID uint) ([]*model.ChatRoom, error) {
-	var rooms []*model.ChatRoom
+	rooms := []*model.ChatRoom{}
 	var allRooms []*model.ChatRoom
 	err := r.db.Order("last_message_at DESC").Find(&allRooms).Error
 	if err != nil {

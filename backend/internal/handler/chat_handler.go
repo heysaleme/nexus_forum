@@ -2,12 +2,14 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"nexus-forum-backend/internal/dto"
 	"nexus-forum-backend/internal/model"
+
+	"github.com/gin-gonic/gin"
 )
 
 // ================= Chat Handlers =================
@@ -163,6 +165,7 @@ func (h *Handlers) SendMessage(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	log.Printf("MESSAGE CREATED ID = %d", msg.ID)
 
 	if hasOtherParticipants {
 		msg.IsDelivered = true
@@ -173,6 +176,7 @@ func (h *Handlers) SendMessage(c *gin.Context) {
 
 	// 3. Broadcast message via WebSocket
 	payload, _ := json.Marshal(WSMessage{
+		ID:             msg.ID,
 		Type:           "message",
 		RoomID:         roomID,
 		SenderID:       uid,
@@ -184,6 +188,9 @@ func (h *Handlers) SendMessage(c *gin.Context) {
 		AttachmentType: msg.AttachmentType,
 		Timestamp:      msg.CreatedAt,
 	})
+
+	log.Printf("WS SEND ID = %d", msg.ID)
+
 	h.WSHub.Broadcast(roomID, payload)
 
 	c.JSON(http.StatusOK, msg)
@@ -324,7 +331,6 @@ func (h *Handlers) UpdateMessage(c *gin.Context) {
 
 	c.JSON(http.StatusOK, msg)
 }
-
 
 func (h *Handlers) DeleteChatRoom(c *gin.Context) {
 	uid, ok := getUserID(c)
