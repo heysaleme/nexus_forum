@@ -150,3 +150,38 @@ func (h *Handlers) ChangePassword(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
+
+func (h *Handlers) ForgotPassword(c *gin.Context) {
+	var req dto.PasswordResetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	token, err := h.AuthService.RequestPasswordReset(req.Email)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	resp := gin.H{"success": true, "message": "If the email exists, a reset link has been sent"}
+	if token != "" {
+		resp["reset_token"] = token
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handlers) ResetPassword(c *gin.Context) {
+	var req dto.PasswordResetSubmit
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.AuthService.ResetPassword(req.ResetToken, req.NewPassword); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}

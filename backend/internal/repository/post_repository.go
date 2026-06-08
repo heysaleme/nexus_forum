@@ -13,6 +13,7 @@ type PostRepository interface {
 	Update(post *model.Post) error
 	Delete(id uint) error
 	List(sortSpec string, limit int, viewerID uint) ([]*model.Post, error)
+	ListByFollowing(followerID uint, sortSpec string, limit int, viewerID uint) ([]*model.Post, error)
 	Filter(filter map[string]interface{}, sortSpec string, limit int, viewerID uint) ([]*model.Post, error)
 	Search(query string, limit int, viewerID uint) ([]*model.Post, error)
 }
@@ -50,6 +51,27 @@ func (r *postRepository) Delete(id uint) error {
 func (r *postRepository) List(sortSpec string, limit int, viewerID uint) ([]*model.Post, error) {
 	var posts []*model.Post
 	q := r.db.Order(parsePostSort(r.db.Dialector.Name(), sortSpec))
+	q = r.applyShadowFilter(q, viewerID)
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	err := q.Find(&posts).Error
+	if err == nil {
+		r.hydratePostFields(posts)
+	}
+	return posts, err
+}
+
+func (r *postRepository) ListByFollowing(followerID uint, sortSpec string, limit int, viewerID uint) ([]*model.Post, error) {
+	var posts []*model.Post
+	followingSubquery := r.db.Model(&model.UserFollow{}).
+		Select("following_id").
+		Where("follower_id = ? AND status = ?", followerID, "accepted")
+
+	q := r.db.
+		Where("status = ?", "published").
+		Where("author_id IN (?)", followingSubquery).
+		Order(parsePostSort(r.db.Dialector.Name(), sortSpec))
 	q = r.applyShadowFilter(q, viewerID)
 	if limit > 0 {
 		q = q.Limit(limit)

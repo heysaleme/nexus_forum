@@ -229,6 +229,29 @@ func (h *Handlers) ListPosts(c *gin.Context) {
 	c.JSON(http.StatusOK, posts)
 }
 
+func (h *Handlers) ListFollowingPosts(c *gin.Context) {
+	userID, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
+	sortSpec := c.Query("sort")
+	posts, err := h.PostService.ListFollowing(userID, sortSpec, 50)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	for _, post := range posts {
+		vote, err := h.PostService.GetVote(userID, post.ID)
+		if err == nil {
+			post.UserVote = vote.Value
+		}
+	}
+
+	c.JSON(http.StatusOK, posts)
+}
+
 func (h *Handlers) UpdatePost(c *gin.Context) {
 	uid, ok := getUserID(c)
 	if !ok {

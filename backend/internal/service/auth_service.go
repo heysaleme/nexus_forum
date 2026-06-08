@@ -1,6 +1,8 @@
 package service
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -18,6 +20,8 @@ type AuthService interface {
 	Login(email, password string) (string, *model.User, error)
 	ValidateToken(tokenStr string) (*Claims, error)
 	ChangePassword(userID uint, oldPassword, newPassword string) error
+	RequestPasswordReset(email string) (string, error)
+	ResetPassword(resetToken, newPassword string) error
 	FindOrCreateOAuthUser(provider, sub, email, name, avatarURL string) (*model.User, string, error)
 }
 
@@ -25,13 +29,14 @@ type AuthService interface {
 var pendingRegistrations = make(map[string]string) // email -> hashed_password
 
 type authService struct {
-	repo      repository.UserRepository
-	modRepo   repository.ModerationRepository
-	jwtSecret string
+	repo       repository.UserRepository
+	modRepo    repository.ModerationRepository
+	resetRepo  repository.PasswordResetRepository
+	jwtSecret  string
 }
 
-func NewAuthService(repo repository.UserRepository, modRepo repository.ModerationRepository, jwtSecret string) AuthService {
-	return &authService{repo: repo, modRepo: modRepo, jwtSecret: jwtSecret}
+func NewAuthService(repo repository.UserRepository, modRepo repository.ModerationRepository, resetRepo repository.PasswordResetRepository, jwtSecret string) AuthService {
+	return &authService{repo: repo, modRepo: modRepo, resetRepo: resetRepo, jwtSecret: jwtSecret}
 }
 
 func (s *authService) Register(email, password string) error {
@@ -293,6 +298,77 @@ func (s *authService) ChangePassword(userID uint, oldPassword, newPassword strin
 		})
 	}
 	return err
+}
+
+func (s *authService) RequestPasswordReset(email string) (string, error) {
+	user, err := s.repo.GetByEmail(email)
+	if err != nil {
+		// Do not reveal whether the email exists
+		return "", nil
+	}
+
+	_ = s.resetRepo.DeleteByUserID(user.ID)
+
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(tokenBytes)
+
+	resetRow := &model.PasswordResetToken{
+		UserID:    user.ID,
+		Token:     token,
+		ExpiresAt: time.Now().Add(1 * time.Hour),
+	}
+	if err := s.resetRepo.Create(resetRow); err != nil {
+		return "", err
+	}
+
+	_ = s.modRepo.CreateLog(&model.ModerationLog{
+		ActorID:    user.ID,
+		TargetID:   user.ID,
+		TargetType: "user",
+		Action:     "password_reset_request",
+		Details:    "Password reset requested",
+	})
+
+	return token, nil
+}
+
+func (s *authService) ResetPassword(resetToken, newPassword string) error {
+	resetRow, err := s.resetRepo.GetValidToken(resetToken)
+	if err != nil {
+		return errors.New("invalid or expired reset token")
+	}
+
+	user, err := s.repo.GetByID(resetRow.UserID)
+	if err != nil {
+		return errors.New("user not found")
+	}
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	user.PasswordHash = string(hashed)
+	if err := s.repo.Update(user); err != nil {
+		return err
+	}
+
+	if err := s.resetRepo.MarkUsed(resetRow.ID); err != nil {
+		return err
+	}
+
+	_ = s.modRepo.CreateLog(&model.ModerationLog{
+		ActorID:    user.ID,
+		TargetID:   user.ID,
+		TargetType: "user",
+		Action:     "password_reset_completed",
+		Details:    "Password reset via email token",
+	})
+
+	return nil
 }
 
 func strconvFormatUint(n uint) string {

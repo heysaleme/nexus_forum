@@ -68,6 +68,7 @@ func main() {
 		&model.AnalyticsEvent{},
 		&model.Report{},
 		&model.KeywordFilter{},
+		&model.PasswordResetToken{},
 	)
 	if err != nil {
 		log.Fatalf("failed to auto migrate tables: %v", err)
@@ -94,8 +95,9 @@ func main() {
 	modRepo := repository.NewModerationRepository(db)
 	analyticsRepo := repository.NewAnalyticsRepository(db)
 	keywordFilterRepo := repository.NewKeywordFilterRepository(db)
+	resetRepo := repository.NewPasswordResetRepository(db)
 
-	authService := service.NewAuthService(userRepo, modRepo, cfg.JWTSecret)
+	authService := service.NewAuthService(userRepo, modRepo, resetRepo, cfg.JWTSecret)
 	userService := service.NewUserService(userRepo, followRepo, notifRepo, modRepo)
 	commService := service.NewCommunityService(commRepo, userRepo)
 	postService := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, savedRepo, notifRepo)
@@ -170,6 +172,8 @@ func main() {
 		api.POST("/auth/register", handlers.Register)
 		api.POST("/auth/verify-otp", handlers.VerifyOTP)
 		api.POST("/auth/login", handlers.Login)
+		api.POST("/auth/forgot-password", handlers.ForgotPassword)
+		api.POST("/auth/reset-password", handlers.ResetPassword)
 
 		// OAuth endpoints (public — no JWT required)
 		api.GET("/auth/oauth/config", handler.GetOAuthProviderConfig(oauthCfg))
@@ -223,6 +227,7 @@ func main() {
 			secured.DELETE("/communities/:id", handlers.DeleteCommunity)
 
 			// Post actions
+			secured.GET("/posts/following", handlers.ListFollowingPosts)
 			secured.POST("/posts", handlers.CreatePost)
 			secured.PUT("/posts/:id", handlers.UpdatePost)
 			secured.DELETE("/posts/:id", handlers.DeletePost)
