@@ -10,12 +10,13 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/components/ui/use-toast';
-import { Type, Image, Link as LinkIcon, BarChart2, BookOpen, X, Plus, Upload, ArrowLeft } from 'lucide-react';
+import { Type, Image, Link as LinkIcon, BarChart2, BookOpen, X, Plus, Upload, ArrowLeft, Video } from 'lucide-react';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 
 const POST_TYPES = [
     { id: 'text', label: 'Текст', icon: Type },
     { id: 'image', label: 'Фото', icon: Image },
+    { id: 'video', label: 'Видео', icon: Video },
     { id: 'link', label: 'Ссылка', icon: LinkIcon },
     { id: 'poll', label: 'Опрос', icon: BarChart2 },
 ];
@@ -81,9 +82,35 @@ export default function CreatePost() {
         setUploading(false);
     };
 
+    const handleVideoUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (!file.type.startsWith('video/')) {
+            toast({ title: 'Выберите видеофайл', variant: 'destructive' });
+            return;
+        }
+        if (file.size > 15 * 1024 * 1024) {
+            toast({ title: 'Видео должно быть меньше 15 МБ', variant: 'destructive' });
+            return;
+        }
+        setUploading(true);
+        try {
+            const { file_url } = await nexusApi.integrations.Core.UploadFile({ file });
+            setMediaUrls([file_url]);
+        } catch {
+            toast({ title: 'Не удалось загрузить видео', variant: 'destructive' });
+        }
+        setUploading(false);
+    };
+
     const handleSubmit = async (statusOverride) => {
         if (!title.trim()) { toast({ title: 'Введите заголовок', variant: 'destructive' }); return; }
         if (!selectedCommunity) { toast({ title: 'Выберите сообщество', variant: 'destructive' }); return; }
+
+        if (type === 'video' && mediaUrls.length === 0) {
+            toast({ title: 'Загрузите видео', variant: 'destructive' });
+            return;
+        }
 
         setSubmitting(true);
         const community = communities.find(c => c.id === selectedCommunity);
@@ -205,6 +232,35 @@ export default function CreatePost() {
                                 value={content}
                                 onChange={e => setContent(e.target.value)}
                                 placeholder="Расскажи, почему эта ссылка интересна..."
+                                className="rounded-xl border-border/50 text-sm min-h-20 resize-none"
+                            />
+                        </div>
+                    </div>
+                ) : type === 'video' ? (
+                    <div className="space-y-3">
+                        <div>
+                            <Label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Видео (до 15 МБ)</Label>
+                            <label className="flex flex-col items-center justify-center border-2 border-dashed border-border/50 rounded-xl p-8 cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-all">
+                                {uploading ? <LoadingSpinner size="sm" /> : (
+                                    <>
+                                        <Video className="w-8 h-8 text-muted-foreground mb-2" />
+                                        <span className="text-sm text-muted-foreground">Нажми для загрузки видео</span>
+                                    </>
+                                )}
+                                <input type="file" accept="video/*" className="hidden" onChange={handleVideoUpload} />
+                            </label>
+                            {mediaUrls.length > 0 && (
+                                <div className="mt-2 rounded-xl overflow-hidden">
+                                    <video src={mediaUrls[0]} controls className="w-full max-h-64 bg-black" />
+                                </div>
+                            )}
+                        </div>
+                        <div>
+                            <Label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Описание (необязательно)</Label>
+                            <Textarea
+                                value={content}
+                                onChange={e => setContent(e.target.value)}
+                                placeholder="Добавь описание к видео..."
                                 className="rounded-xl border-border/50 text-sm min-h-20 resize-none"
                             />
                         </div>

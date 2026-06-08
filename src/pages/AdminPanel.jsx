@@ -113,7 +113,7 @@ export default function AdminPanel() {
     if (loading) return <LoadingSpinner size="lg" className="py-32" />;
 
     return (
-        <div className="max-w-7xl mx-auto px-4 py-4">
+        <div className="max-w-7xl mx-auto px-4 py-4 overflow-x-hidden">
             <div className="flex items-center justify-between mb-5">
                 <div className="flex items-center gap-2">
                     <div className="w-9 h-9 bg-destructive/10 rounded-xl flex items-center justify-center">
@@ -155,11 +155,11 @@ export default function AdminPanel() {
             </div>
 
             <Tabs defaultValue="stats">
-                <TabsList className="bg-muted/50 rounded-xl p-1 mb-4">
-                    <TabsTrigger value="stats" className="rounded-lg text-xs gap-1.5"><BarChart2 className="w-3.5 h-3.5" />Статистика</TabsTrigger>
-                    <TabsTrigger value="users" className="rounded-lg text-xs gap-1.5"><Users className="w-3.5 h-3.5" />Пользователи</TabsTrigger>
-                    <TabsTrigger value="communities" className="rounded-lg text-xs gap-1.5"><Users className="w-3.5 h-3.5" />Сообщества</TabsTrigger>
-                    <TabsTrigger value="reports" className="rounded-lg text-xs gap-1.5 relative">
+                <TabsList className="bg-muted/50 rounded-xl p-1 mb-4 w-full flex flex-nowrap overflow-x-auto scrollbar-hide justify-start">
+                    <TabsTrigger value="stats" className="rounded-lg text-xs gap-1.5 flex-shrink-0"><BarChart2 className="w-3.5 h-3.5" />Статистика</TabsTrigger>
+                    <TabsTrigger value="users" className="rounded-lg text-xs gap-1.5 flex-shrink-0"><Users className="w-3.5 h-3.5" />Пользователи</TabsTrigger>
+                    <TabsTrigger value="communities" className="rounded-lg text-xs gap-1.5 flex-shrink-0"><Users className="w-3.5 h-3.5" />Сообщества</TabsTrigger>
+                    <TabsTrigger value="reports" className="rounded-lg text-xs gap-1.5 relative flex-shrink-0">
                         <AlertTriangle className="w-3.5 h-3.5" />
                         Жалобы
                         {stats.pendingReports > 0 && <span className="absolute -top-1 -right-1 w-3 h-3 bg-destructive rounded-full text-[8px] text-white flex items-center justify-center">{stats.pendingReports}</span>}

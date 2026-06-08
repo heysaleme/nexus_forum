@@ -293,7 +293,11 @@ const nexusApi = {
     auth,
     Search: {
         async query(q) {
-            return request(`/search?q=${encodeURIComponent(q)}`);
+            const data = await request(`/search?q=${encodeURIComponent(q)}`);
+            if (data?.posts && Array.isArray(data.posts)) {
+                data.posts = data.posts.map(parsePost);
+            }
+            return data;
         }
     },
     integrations: {
@@ -368,7 +372,11 @@ const nexusApi = {
                 }
                 const query = buildQueryString(params, sortSpec, limit);
                 const res = await request(`/posts${query}`);
-                return Array.isArray(res) ? res.map(parsePost) : res;
+                let posts = Array.isArray(res) ? res.map(parsePost) : res;
+                if (Array.isArray(posts) && filter.status) {
+                    posts = posts.filter((p) => p.status === filter.status);
+                }
+                return posts;
             }
         },
         Comment: {

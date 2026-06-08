@@ -65,39 +65,44 @@ export default function Profile() {
 
     const loadProfile = async () => {
         setLoading(true);
-        const [users, userPosts, userAchievements] = await Promise.all([
-            nexusApi.entities.User.filter({ id: targetId }),
-            nexusApi.entities.Post.filter({ author_id: targetId, status: 'published' }, '-created_date', 10),
-            nexusApi.entities.Achievement.filter({ user_id: targetId }),
-        ]);
+        try {
+            const [users, userPosts, userAchievements] = await Promise.all([
+                nexusApi.entities.User.filter({ id: targetId }),
+                nexusApi.entities.Post.filter({ author_id: targetId, status: 'published' }, '-created_date', 10),
+                nexusApi.entities.Achievement.filter({ user_id: targetId }).catch(() => []),
+            ]);
 
-        if (users[0]) setProfileUser(users[0]);
-        else if (targetId === currentUser?.id) setProfileUser(currentUser);
-        setPosts(userPosts || []);
-        setAchievements(userAchievements || []);
+            if (users[0]) setProfileUser(users[0]);
+            else if (targetId === currentUser?.id) setProfileUser(currentUser);
+            setPosts((userPosts || []).filter((p) => p?.id && p.status !== 'removed'));
+            setAchievements(userAchievements || []);
 
-        if (!isOwn && currentUser) {
-            try {
-                const follows = await nexusApi.entities.UserFollow.filter({ follower_id: currentUser.id, following_id: targetId });
-                if (follows.length > 0) {
-                    setFollowStatus(follows[0].status);
-                    setIsFollowing(follows[0].status === 'accepted');
-                } else {
+            if (!isOwn && currentUser) {
+                try {
+                    const follows = await nexusApi.entities.UserFollow.filter({ follower_id: currentUser.id, following_id: targetId });
+                    if (follows.length > 0) {
+                        setFollowStatus(follows[0].status);
+                        setIsFollowing(follows[0].status === 'accepted');
+                    } else {
+                        setFollowStatus('none');
+                        setIsFollowing(false);
+                    }
+                } catch {
                     setFollowStatus('none');
                     setIsFollowing(false);
                 }
-            } catch (err) {
-                setFollowStatus('none');
-                setIsFollowing(false);
             }
-        }
 
-        if (isOwn && currentUser) {
-            const saved = await nexusApi.entities.SavedPost.filter({ user_id: currentUser.id });
-            setSavedPosts(saved || []);
+            if (isOwn && currentUser) {
+                const saved = await nexusApi.entities.SavedPost.filter({ user_id: currentUser.id });
+                setSavedPosts(saved || []);
+            }
+        } catch (err) {
+            console.error('Profile load failed:', err);
+            toast({ title: 'Не удалось загрузить профиль', variant: 'destructive' });
+        } finally {
+            setLoading(false);
         }
-
-        setLoading(false);
     };
 
     const handleFollow = async () => {
@@ -130,12 +135,14 @@ export default function Profile() {
     };
 
     const handleBanUser = async () => {
+        const target = profileUser || currentUser;
+        if (!target?.id) return;
         try {
-            const nextBanned = !displayUser.is_banned;
-            await nexusApi.entities.User.update(displayUser.id, { is_banned: nextBanned });
-            setProfileUser(prev => ({ ...prev, is_banned: nextBanned }));
+            const nextBanned = !target.is_banned;
+            await nexusApi.entities.User.update(target.id, { is_banned: nextBanned });
+            setProfileUser((prev) => (prev ? { ...prev, is_banned: nextBanned } : prev));
             toast({ title: nextBanned ? '🚫 Пользователь заблокирован' : '✅ Пользователь разблокирован' });
-        } catch (err) {
+        } catch {
             toast({ title: 'Не удалось обновить блокировку', variant: 'destructive' });
         }
     };
@@ -336,7 +343,14 @@ export default function Profile() {
                                 <EmptyState icon={FileText} title="Публикаций пока нет" />
                             ) : (
                                 <div className="nexus-feed-shell">
-                                    {posts.map(post => <PostCard key={post.id} post={post} currentUser={currentUser} />)}
+                                    {posts.map(post => (
+                                        <PostCard
+                                            key={post.id}
+                                            post={post}
+                                            currentUser={currentUser}
+                                            onDeleteSuccess={(postId) => setPosts((prev) => prev.filter((p) => p.id !== postId))}
+                                        />
+                                    ))}
                                 </div>
                             )}
                         </TabsContent>

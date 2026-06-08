@@ -21,8 +21,8 @@ export default function BottomNav() {
     }
 
     return (
-        <nav className="fixed bottom-0 left-0 right-0 z-50 glass border-t border-border/50 md:hidden">
-            <div className="flex items-center justify-around px-2 py-2 max-w-lg mx-auto">
+        <nav className="fixed bottom-0 left-0 right-0 z-50 glass border-t border-border/50 md:hidden max-w-[100vw] overflow-hidden">
+            <div className="flex items-center justify-between px-1 py-2 w-full max-w-lg mx-auto">
                 {items.map(({ icon: Icon, label, path, isCenter }) => {
                     const isActive = location.pathname === path;
                     const requiresAuth = ['/create', '/chats', '/profile'].includes(path);
@@ -45,12 +45,12 @@ export default function BottomNav() {
                         );
                     }
                     return (
-                        <Link key={path} to={path} onClick={handleClick} className="flex flex-col items-center gap-1 min-w-[50px]">
-                            <motion.div whileTap={{ scale: 0.9 }} className="flex flex-col items-center gap-0.5">
+                        <Link key={path} to={path} onClick={handleClick} className="flex flex-col items-center gap-0.5 flex-1 min-w-0 max-w-[4.5rem]">
+                            <motion.div whileTap={{ scale: 0.9 }} className="flex flex-col items-center gap-0.5 w-full">
                                 <div className={`p-1.5 rounded-xl transition-all ${isActive ? 'bg-primary/10' : ''}`}>
                                     <Icon className={`w-5 h-5 transition-colors ${isActive ? 'text-primary' : 'text-muted-foreground'}`} />
                                 </div>
-                                <span className={`text-[10px] font-medium transition-colors ${isActive ? 'text-primary' : 'text-muted-foreground'}`}>
+                                <span className={`text-[9px] font-medium transition-colors truncate w-full text-center ${isActive ? 'text-primary' : 'text-muted-foreground'}`}>
                                     {label}
                                 </span>
                             </motion.div>

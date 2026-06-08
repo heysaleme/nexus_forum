@@ -168,15 +168,19 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "time": time.Now().Format(time.RFC3339)})
 	})
 
+	authRateLimit := middleware.NewRateLimiter(30, time.Minute)
+	postRateLimit := middleware.NewRateLimiter(15, time.Minute)
+	commentRateLimit := middleware.NewRateLimiter(40, time.Minute)
+
 	api := r.Group("/api")
 	{
 		// Auth endpoints
-		api.POST("/auth/register", handlers.Register)
-		api.POST("/auth/verify-otp", handlers.VerifyOTP)
-		api.POST("/auth/login", handlers.Login)
-		api.POST("/auth/forgot-password", handlers.ForgotPassword)
-		api.POST("/auth/reset-password", handlers.ResetPassword)
-		api.POST("/auth/refresh", handlers.RefreshToken)
+		api.POST("/auth/register", authRateLimit, handlers.Register)
+		api.POST("/auth/verify-otp", authRateLimit, handlers.VerifyOTP)
+		api.POST("/auth/login", authRateLimit, handlers.Login)
+		api.POST("/auth/forgot-password", authRateLimit, handlers.ForgotPassword)
+		api.POST("/auth/reset-password", authRateLimit, handlers.ResetPassword)
+		api.POST("/auth/refresh", authRateLimit, handlers.RefreshToken)
 
 		// OAuth endpoints (public — no JWT required)
 		api.GET("/auth/oauth/config", handler.GetOAuthProviderConfig(oauthCfg))
@@ -231,7 +235,7 @@ func main() {
 
 			// Post actions
 			secured.GET("/posts/following", handlers.ListFollowingPosts)
-			secured.POST("/posts", handlers.CreatePost)
+			secured.POST("/posts", postRateLimit, handlers.CreatePost)
 			secured.PUT("/posts/:id", handlers.UpdatePost)
 			secured.DELETE("/posts/:id", handlers.DeletePost)
 			secured.POST("/posts/:id/vote", handlers.VotePost)
@@ -241,7 +245,7 @@ func main() {
 			secured.GET("/users/saved", handlers.GetSavedPosts)
 
 			// Comment actions
-			secured.POST("/comments", handlers.CreateComment)
+			secured.POST("/comments", commentRateLimit, handlers.CreateComment)
 			secured.PUT("/comments/:id", handlers.UpdateComment)
 			secured.POST("/comments/:id/vote", handlers.VoteComment)
 			secured.DELETE("/comments/:id", handlers.DeleteComment)

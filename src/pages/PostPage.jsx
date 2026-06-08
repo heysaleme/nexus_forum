@@ -91,11 +91,12 @@ function LinkPreview({ url }) {
 }
 
 // ── CommentItem ──────────────────────────────────────────
-function CommentItem({ comment, depth = 0, currentUser, postId, onReload, canDeleteOthers }) {
+function CommentItem({ comment, depth = 0, currentUser, postId, onCommentAdded, onCommentUpdated, onCommentRemoved, canDeleteOthers }) {
     const { toast } = useToast();
     const { triggerAuthModal } = useAuth();
     const [showReply, setShowReply] = useState(false);
     const [replyText, setReplyText] = useState('');
+    const [submittingReply, setSubmittingReply] = useState(false);
     const [userVote, setUserVote] = useState(comment.user_vote || 0);
     const [score, setScore] = useState(comment.score || 0);
     const [isEditing, setIsEditing] = useState(false);
@@ -131,20 +132,32 @@ function CommentItem({ comment, depth = 0, currentUser, postId, onReload, canDel
     };
 
     const handleReply = async () => {
-        if (!replyText.trim()) return;
-        await nexusApi.entities.Comment.create({
-            post_id: Number(postId),
-            author_id: currentUser.id,
-            author_username: currentUser.full_name || currentUser.email,
-            author_avatar: currentUser.avatar_url,
-            parent_id: comment.id,
-            content: replyText.trim(),
-            depth: depth + 1,
-            score: 0,
-        });
-        setReplyText('');
-        setShowReply(false);
-        onReload();
+        if (!replyText.trim() || submittingReply) return;
+        if (!currentUser) {
+            triggerAuthModal('Для ответа необходимо войти.');
+            return;
+        }
+        setSubmittingReply(true);
+        try {
+            const result = await nexusApi.entities.Comment.create({
+                post_id: Number(postId),
+                author_id: currentUser.id,
+                author_username: currentUser.full_name || currentUser.email,
+                author_avatar: currentUser.avatar_url,
+                parent_id: comment.id,
+                content: replyText.trim(),
+                depth: depth + 1,
+                score: 0,
+            });
+            setReplyText('');
+            setShowReply(false);
+            onCommentAdded?.(result, comment.id, comment.author_username);
+        } catch (err) {
+            console.error(err);
+            toast({ title: 'Не удалось отправить ответ', variant: 'destructive' });
+        } finally {
+            setSubmittingReply(false);
+        }
     };
 
     const handleSaveEdit = async () => {
@@ -153,7 +166,7 @@ function CommentItem({ comment, depth = 0, currentUser, postId, onReload, canDel
             await nexusApi.entities.Comment.update(comment.id, { content: editText.trim() });
             toast({ title: '✨ Комментарий обновлен' });
             setIsEditing(false);
-            onReload();
+            onCommentUpdated?.(comment.id, editText.trim());
         } catch (err) {
             toast({ title: 'Не удалось обновить комментарий', variant: 'destructive' });
         }
@@ -164,7 +177,7 @@ function CommentItem({ comment, depth = 0, currentUser, postId, onReload, canDel
         try {
             await nexusApi.entities.Comment.delete(comment.id);
             toast({ title: '🗑️ Комментарий удален' });
-            onReload();
+            onCommentRemoved?.(comment.id);
         } catch (err) {
             toast({ title: 'Не удалось удалить комментарий', variant: 'destructive' });
         }
@@ -191,7 +204,12 @@ function CommentItem({ comment, depth = 0, currentUser, postId, onReload, canDel
                 ) : comment.is_deleted ? (
                     <p className="text-xs text-muted-foreground italic ml-8">{comment.content}</p>
                 ) : (
-                    <p className="text-sm text-foreground leading-relaxed ml-8">{comment.content}</p>
+                    <p className="text-sm text-foreground leading-relaxed ml-8">
+                        {comment.reply_to_username && (
+                            <span className="text-primary font-semibold mr-1">@{comment.reply_to_username}</span>
+                        )}
+                        {comment.content}
+                    </p>
                 )}
 
                 <div className="flex items-center gap-2 mt-1.5 ml-8 flex-wrap">
@@ -230,9 +248,9 @@ function CommentItem({ comment, depth = 0, currentUser, postId, onReload, canDel
                 <AnimatePresence>
                     {showReply && (
                         <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mt-2 ml-8 flex gap-2">
-                            <Textarea value={replyText} onChange={e => setReplyText(e.target.value)} placeholder="Ответить..." className="text-sm min-h-0 h-14 resize-none border-border/50 text-xs rounded" />
+                            <Textarea value={replyText} onChange={e => setReplyText(e.target.value)} placeholder={`Ответить @${comment.author_username}...`} className="text-sm min-h-0 h-14 resize-none border-border/50 text-xs rounded" />
                             <div className="flex flex-col gap-1">
-                                <Button size="sm" className="nexus-gradient border-0 text-white h-7 w-7 p-0 shadow-nexus rounded" onClick={handleReply}><Send className="w-3 h-3" /></Button>
+                                <Button size="sm" className="nexus-gradient border-0 text-white h-7 w-7 p-0 shadow-nexus rounded" onClick={handleReply} disabled={!replyText.trim() || submittingReply}><Send className="w-3 h-3" /></Button>
                                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-xs rounded" onClick={() => setShowReply(false)}>✕</Button>
                             </div>
                         </motion.div>
@@ -277,10 +295,6 @@ export default function PostPage() {
     const [memberRole, setMemberRole] = useState(null);
     const [reportOpen, setReportOpen] = useState(false);
 
-    useEffect(() => {
-        console.log("STATE USER_VOTE =", userVote);
-    }, [userVote]);
-
     useEffect(() => { loadPost(); }, [id, user]);
 
     const loadPost = async () => {
@@ -290,15 +304,9 @@ export default function PostPage() {
             nexusApi.entities.Comment.filter({ post_id: id }, 'created_date'),
         ]);
         if (posts[0]) {
-            console.log("POST USER_VOTE:", posts[0].user_vote);
             setPost(posts[0]);
             setScore(posts[0].score || 0);
-
-            console.log("LOAD POST USER_VOTE =", posts[0].user_vote);
-
             setUserVote(Number(posts[0].user_vote) || 0);
-            console.log("TYPE:", typeof posts[0].user_vote);
-            console.log("VALUE:", posts[0].user_vote);
             nexusApi.entities.Post.update(posts[0].id, { views: (posts[0].views || 0) + 1 });
 
             if (user) {
@@ -435,13 +443,10 @@ export default function PostPage() {
     };
 
     const handleComment = async () => {
-        if (!newComment.trim() || !user) return;
+        if (!newComment.trim() || !user || submittingComment) return;
 
         try {
             setSubmittingComment(true);
-
-            console.log("SEND COMMENT");
-
             const result = await nexusApi.entities.Comment.create({
                 post_id: Number(id),
                 author_id: user.id,
@@ -451,43 +456,78 @@ export default function PostPage() {
                 score: 0,
                 depth: 0,
             });
-
-            console.log("COMMENT RESULT:", result);
-
-            await nexusApi.entities.Post.update(id, {
-                comment_count: (post.comment_count || 0) + 1
-            });
-
+            handleCommentAdded(result);
             setNewComment('');
-            loadPost();
-
         } catch (err) {
-            console.error("COMMENT ERROR:", err);
+            console.error('COMMENT ERROR:', err);
+            toast({ title: 'Не удалось отправить комментарий', variant: 'destructive' });
         } finally {
             setSubmittingComment(false);
         }
     };
 
-    const buildCommentTree = (allComments, parentId = null) =>
-        allComments.filter(c => (c.parent_id || null) === parentId).map(c => ({ ...c, children: buildCommentTree(allComments, c.id) }));
+    const normalizeParentId = (value) => {
+        if (value === undefined || value === null || value === '' || value === 0) return null;
+        return Number(value);
+    };
 
-    const sortedComments = [...comments].sort((a, b) => {
-        if (commentSort === 'top') return (b.score || 0) - (a.score || 0);
-        if (commentSort === 'new') return new Date(b.created_date) - new Date(a.created_date);
-        return new Date(a.created_date) - new Date(b.created_date);
-    });
+    const buildCommentTree = (allComments, parentId = null) => {
+        const normParent = normalizeParentId(parentId);
+        return allComments
+            .filter((c) => normalizeParentId(c.parent_id) === normParent)
+            .sort((a, b) => new Date(a.created_date) - new Date(b.created_date))
+            .map((c) => {
+                const parent = allComments.find((p) => Number(p.id) === normalizeParentId(c.parent_id));
+                return {
+                    ...c,
+                    reply_to_username: parent?.author_username,
+                    children: buildCommentTree(allComments, c.id),
+                };
+            });
+    };
 
-    const renderComments = (list) => list.map(comment => (
+    const sortRootComments = (roots) => {
+        if (commentSort === 'top') return [...roots].sort((a, b) => (b.score || 0) - (a.score || 0));
+        if (commentSort === 'new') return [...roots].sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
+        return [...roots].sort((a, b) => new Date(a.created_date) - new Date(b.created_date));
+    };
+
+    const handleCommentAdded = (newCommentData, parentId = null, parentUsername = null) => {
+        const enriched = {
+            ...newCommentData,
+            parent_id: parentId ?? newCommentData.parent_id ?? null,
+            reply_to_username: parentUsername ?? newCommentData.reply_to_username,
+        };
+        setComments((prev) => [...prev, enriched]);
+        setPost((prev) => (prev ? { ...prev, comment_count: (prev.comment_count || 0) + 1 } : prev));
+    };
+
+    const handleCommentUpdated = (commentId, content) => {
+        setComments((prev) => prev.map((c) => (c.id === commentId ? { ...c, content } : c)));
+    };
+
+    const handleCommentRemoved = (commentId) => {
+        setComments((prev) => prev.map((c) => (
+            c.id === commentId
+                ? { ...c, is_deleted: true, content: '[комментарий удалён]' }
+                : c
+        )));
+        setPost((prev) => (prev ? { ...prev, comment_count: Math.max(0, (prev.comment_count || 1) - 1) } : prev));
+    };
+
+    const renderComments = (list, depth = 0) => list.map(comment => (
         <div key={comment.id}>
             <CommentItem
                 comment={comment}
-                depth={comment.depth || 0}
+                depth={depth}
                 currentUser={user}
                 postId={id}
-                onReload={loadPost}
+                onCommentAdded={handleCommentAdded}
+                onCommentUpdated={handleCommentUpdated}
+                onCommentRemoved={handleCommentRemoved}
                 canDeleteOthers={isGlobalAdminOrMod || memberRole === 'owner' || memberRole === 'moderator'}
             />
-            {comment.children?.length > 0 && <div>{renderComments(comment.children)}</div>}
+            {comment.children?.length > 0 && <div>{renderComments(comment.children, depth + 1)}</div>}
             <div className="border-b border-border/20 last:border-0" />
         </div>
     ));
@@ -495,7 +535,7 @@ export default function PostPage() {
     if (loading) return <LoadingSpinner size="lg" className="py-32" />;
     if (!post) return <EmptyState icon={MessageCircle} title="Публикация не найдена" />;
 
-    const topLevelComments = buildCommentTree(sortedComments);
+    const topLevelComments = sortRootComments(buildCommentTree(comments));
     // Content is blocked by spoiler/nsfw only when not yet revealed
     const contentBlocked = (post.is_nsfw || post.is_spoiler) && !revealed;
 
@@ -636,8 +676,13 @@ export default function PostPage() {
                                 {/* Text content */}
                                 {post.content && <p className="px-4 text-sm text-foreground leading-relaxed mb-3 whitespace-pre-wrap">{post.content}</p>}
 
-                                {/* Images — shown for image type or any post with media */}
-                                {post.media_urls?.length > 0 && (
+                                {post.type === 'video' && post.media_urls?.length > 0 && (
+                                    <div className="mx-4 mb-3 overflow-hidden rounded-xl">
+                                        <video src={post.media_urls[0]} controls className="w-full max-h-[500px] bg-black" />
+                                    </div>
+                                )}
+
+                                {post.type !== 'video' && post.media_urls?.length > 0 && (
                                     <div className={`mx-4 mb-3 overflow-hidden rounded-xl ${post.media_urls.length > 1 ? 'grid grid-cols-2 gap-0.5' : ''}`}>
                                         {post.media_urls.map((url, i) => (
                                             <img key={i} src={url} className="w-full object-cover max-h-[500px]" alt="" />

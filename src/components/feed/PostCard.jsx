@@ -7,6 +7,19 @@ import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/lib/AuthContext';
 import ReportModal from '@/components/ui/ReportModal';
 
+function asArray(value) {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+        try {
+            const parsed = JSON.parse(value);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    }
+    return [];
+}
+
 function timeAgoShort(date) {
     if (!date) return '';
     const seconds = Math.floor((new Date() - new Date(date)) / 1000);
@@ -23,6 +36,11 @@ function timeAgoShort(date) {
 }
 
 export default function PostCard({ post, currentUser: propUser, onVote, onDeleteSuccess }) {
+    if (!post?.id) return null;
+
+    const tags = asArray(post.tags);
+    const mediaUrls = asArray(post.media_urls);
+    const pollOptions = asArray(post.poll_options);
     const { user: authUser } = useAuth();
     const currentUser = propUser || authUser;
     const [reportOpen, setReportOpen] = useState(false);
@@ -92,8 +110,6 @@ export default function PostCard({ post, currentUser: propUser, onVote, onDelete
             toast({ title: '🗑️ Пост удален' });
             if (onDeleteSuccess) {
                 onDeleteSuccess(post.id);
-            } else {
-                window.location.reload();
             }
         } catch (err) {
             toast({ title: 'Ошибка при удалении', variant: 'destructive' });
@@ -144,9 +160,9 @@ export default function PostCard({ post, currentUser: propUser, onVote, onDelete
                 {post.is_spoiler && <Badge className="text-[9px] bg-yellow-600 text-white uppercase px-1.5 py-0 rounded font-black hover:bg-yellow-600">SPOILER</Badge>}
             </h3>
 
-            {post.tags?.length > 0 && (
+            {tags.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 px-5 mb-2">
-                    {post.tags.slice(0, 3).map(tag => (
+                    {tags.slice(0, 3).map(tag => (
                         <Badge key={tag} variant="secondary" className="text-[10px] rounded-full px-2 py-0 bg-primary/10 text-primary border-0">#{tag}</Badge>
                     ))}
                 </div>
@@ -172,15 +188,20 @@ export default function PostCard({ post, currentUser: propUser, onVote, onDelete
                         </p>
                     )}
 
-                    {/* Images — shown for any post with media_urls */}
-                    {post.media_urls?.length > 0 && (
-                        <div className={`mt-2 mx-5 overflow-hidden rounded-xl ${post.media_urls.length > 1 ? 'grid grid-cols-2 gap-0.5' : ''}`}>
-                            {post.media_urls.slice(0, 4).map((url, i) => (
+                    {mediaUrls.length > 0 && post.type === 'video' && (
+                        <div className="mt-2 mx-5 overflow-hidden rounded-xl">
+                            <video src={mediaUrls[0]} controls className="w-full max-h-64 bg-black" />
+                        </div>
+                    )}
+
+                    {mediaUrls.length > 0 && post.type !== 'video' && (
+                        <div className={`mt-2 mx-5 overflow-hidden rounded-xl ${mediaUrls.length > 1 ? 'grid grid-cols-2 gap-0.5' : ''}`}>
+                            {mediaUrls.slice(0, 4).map((url, i) => (
                                 <div key={i} className="relative">
                                     <img src={url} alt="" className="w-full object-cover max-h-64" />
-                                    {i === 3 && post.media_urls.length > 4 && (
+                                    {i === 3 && mediaUrls.length > 4 && (
                                         <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                                            <span className="text-white font-bold text-lg">+{post.media_urls.length - 4}</span>
+                                            <span className="text-white font-bold text-lg">+{mediaUrls.length - 4}</span>
                                         </div>
                                     )}
                                 </div>
@@ -205,11 +226,9 @@ export default function PostCard({ post, currentUser: propUser, onVote, onDelete
                     )}
 
                     {/* Poll preview in card */}
-                    {post.type === 'poll' &&
-                        Array.isArray(post.poll_options) &&
-                        post.poll_options.length > 0 && (
+                    {post.type === 'poll' && pollOptions.length > 0 && (
                             <div className="px-5 mt-2 mb-1 space-y-1.5">
-                                {post.poll_options.slice(0, 3).map((opt, i) => (
+                                {pollOptions.slice(0, 3).map((opt, i) => (
                                     <div key={i} className="flex items-center gap-2 bg-muted/30 border border-border/40 rounded-lg px-3 py-1.5">
                                         <div className="w-3 h-3 rounded-full border-2 border-primary/50 flex-shrink-0" />
                                         <span className="text-xs font-medium">
@@ -220,8 +239,8 @@ export default function PostCard({ post, currentUser: propUser, onVote, onDelete
                                         </span>
                                     </div>
                                 ))}
-                                {post.poll_options.length > 3 && (
-                                    <p className="text-xs text-muted-foreground pl-1">+{post.poll_options.length - 3} вариантов</p>
+                                {pollOptions.length > 3 && (
+                                    <p className="text-xs text-muted-foreground pl-1">+{pollOptions.length - 3} вариантов</p>
                                 )}
                             </div>
                         )}
