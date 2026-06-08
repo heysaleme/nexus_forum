@@ -104,9 +104,39 @@ func main() {
 	analyticsService := service.NewAnalyticsService(analyticsRepo, userRepo, postRepo)
 
 	// WebSocket hub (starts background goroutine)
-	wsHub := handler.NewWSHub()
+	wsHub := handler.NewWSHub(db)
 
-	handlers := handler.NewHandlers(authService, userService, commService, postService, commentService, chatService, notifService, modService, analyticsService)
+	// Register global NotificationDispatcher to trigger real-time WS notifications
+	repository.NotificationDispatcher = func(userID uint, notif *model.Notification) {
+		payload, err := json.Marshal(struct {
+			Type string             `json:"type"`
+			Data *model.Notification `json:"data"`
+		}{
+			Type: "notification",
+			Data: notif,
+		})
+		if err == nil {
+			wsHub.SendToUser(userID, payload)
+		}
+
+		// Push updated count as well
+		var count int64
+		if db != nil {
+			db.Model(&model.Notification{}).Where("user_id = ? AND is_read = ?", userID, false).Count(&count)
+			countPayload, err := json.Marshal(struct {
+				Type  string `json:"type"`
+				Count int64  `json:"count"`
+			}{
+				Type:  "unread_count",
+				Count: count,
+			})
+			if err == nil {
+				wsHub.SendToUser(userID, countPayload)
+			}
+		}
+	}
+
+	handlers := handler.NewHandlers(authService, userService, commService, postService, commentService, chatService, notifService, modService, analyticsService, wsHub)
 
 	// 7. Setup Gin Router
 	gin.SetMode(gin.ReleaseMode)
@@ -116,6 +146,9 @@ func main() {
 	r.Use(CORSMiddleware())
 	r.Use(middleware.LoggerMiddleware())
 	r.Use(gin.Recovery())
+
+	// Serve uploads statically
+	r.Static("/uploads", "./uploads")
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
@@ -198,10 +231,13 @@ func main() {
 			secured.DELETE("/chats/:id", handlers.DeleteChatRoom)
 			secured.GET("/chats/:id/messages", handlers.GetMessages)
 			secured.POST("/chats/:id/messages", handlers.SendMessage)
+			secured.PUT("/messages/:id", handlers.UpdateMessage)
 			secured.DELETE("/messages/:id", handlers.DeleteMessage)
+			secured.POST("/upload", handlers.UploadFile)
 
 			// Notification actions
 			secured.GET("/notifications", handlers.GetNotifications)
+			secured.GET("/notifications/unread-count", handlers.GetUnreadNotificationCount)
 			secured.POST("/notifications/read", handlers.MarkAllNotificationsRead)
 			secured.POST("/notifications/:id/read", handlers.MarkNotificationRead)
 			secured.PUT("/notifications/:id", handlers.MarkNotificationRead)
@@ -226,6 +262,7 @@ func main() {
 
 	// WebSocket endpoint (authenticated via ?token= query param)
 	r.GET("/api/ws/chat/:id", handler.ServeWS(wsHub, chatService, authService))
+	r.GET("/api/ws/global", handler.ServeGlobalWS(wsHub, authService))
 
 	// Public analytics event tracking (can also be called by anonymous users)
 	r.POST("/api/analytics/track", handlers.TrackEvent)

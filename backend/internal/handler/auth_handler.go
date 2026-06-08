@@ -83,6 +83,7 @@ func (h *Handlers) GetMe(c *gin.Context) {
 		return
 	}
 
+	user.IsOnline = h.WSHub.IsUserOnline(user.ID)
 	c.JSON(http.StatusOK, user)
 }
 

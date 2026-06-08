@@ -44,6 +44,7 @@ func (h *Handlers) GetUserByID(c *gin.Context) {
 		}
 	}
 
+	user.IsOnline = h.WSHub.IsUserOnline(user.ID)
 	c.JSON(http.StatusOK, user)
 }
 
@@ -98,6 +99,7 @@ func (h *Handlers) ListUsers(c *gin.Context) {
 	reqUserID, isAuthenticated := getOptionalUserID(c, h.AuthService)
 	var visibleUsers []*model.User
 	for _, u := range users {
+		u.IsOnline = h.WSHub.IsUserOnline(u.ID)
 		if u.IsPrivate {
 			isAuthorized := false
 			if isAuthenticated {

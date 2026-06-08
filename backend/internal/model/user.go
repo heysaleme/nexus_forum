@@ -22,6 +22,8 @@ type User struct {
 	AllowDMs       bool      `gorm:"default:true" json:"allow_dms"`
 	IsPrivate      bool      `gorm:"default:false" json:"is_private"`
 	IsBanned       bool      `gorm:"default:false" json:"is_banned"`
+	LastSeenAt     time.Time `json:"last_seen_at"`
+	IsOnline       bool      `gorm:"-" json:"is_online"`
 	CreatedAt      time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"created_date"`
 }
 

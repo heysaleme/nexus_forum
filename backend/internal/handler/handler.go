@@ -19,6 +19,7 @@ type Handlers struct {
 	NotifService   service.NotificationService
 	ModService     service.ModerationService
 	Analytics      service.AnalyticsService
+	WSHub          *WSHub
 }
 
 func NewHandlers(
@@ -31,6 +32,7 @@ func NewHandlers(
 	notif service.NotificationService,
 	mod service.ModerationService,
 	analytics service.AnalyticsService,
+	wsHub *WSHub,
 ) *Handlers {
 	return &Handlers{
 		AuthService:    auth,
@@ -42,6 +44,7 @@ func NewHandlers(
 		NotifService:   notif,
 		ModService:     mod,
 		Analytics:      analytics,
+		WSHub:          wsHub,
 	}
 }
 
