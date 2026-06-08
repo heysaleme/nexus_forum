@@ -49,8 +49,14 @@ export default function FollowersModal({ open, onClose, userId, defaultTab = 'fo
 
         // If the API returns full user objects, great; if not, fetch them
         const resolveUsers = async (list, idField) => {
-            if (list.length === 0) return [];
-            if (list[0]?.username) return list; // Already resolved to users
+            if (!list || list.length === 0) {
+                return [];
+            }
+
+            if (list[0]?.username) {
+                return list;
+            }
+
             return Promise.all(
                 list.map(f =>
                     nexusApi.entities.User.filter({ id: f[idField] })

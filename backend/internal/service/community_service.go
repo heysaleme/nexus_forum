@@ -16,6 +16,7 @@ type CommunityService interface {
 	GetMemberships(userID uint) ([]*model.CommunityMember, error)
 	GetMembers(communityID uint) ([]*model.CommunityMember, error)
 	Delete(userID, communityID uint) error
+	Search(query string, limit int) ([]*model.Community, error)
 }
 
 type communityService struct {
@@ -140,4 +141,8 @@ func (s *communityService) Delete(userID, communityID uint) error {
 	}
 
 	return s.repo.Delete(communityID)
+}
+
+func (s *communityService) Search(query string, limit int) ([]*model.Community, error) {
+	return s.repo.Search(query, limit)
 }

@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"strings"
 	"nexus-forum-backend/internal/model"
 
 	"gorm.io/gorm"
@@ -13,6 +14,7 @@ type UserRepository interface {
 	GetByUsername(username string) (*model.User, error)
 	Update(user *model.User) error
 	List(sortSpec string, limit int) ([]*model.User, error)
+	Search(query string, limit int) ([]*model.User, error)
 }
 
 type userRepository struct {
@@ -52,6 +54,24 @@ func (r *userRepository) Update(user *model.User) error {
 func (r *userRepository) List(sortSpec string, limit int) ([]*model.User, error) {
 	var users []*model.User
 	q := r.db.Order(parseSort(sortSpec))
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	err := q.Find(&users).Error
+	return users, err
+}
+
+func (r *userRepository) Search(query string, limit int) ([]*model.User, error) {
+	var users []*model.User
+	dialect := r.db.Dialector.Name()
+	var q *gorm.DB
+	if dialect == "postgres" {
+		q = r.db.Where("to_tsvector('simple', username || ' ' || bio) @@ plainto_tsquery('simple', ?)", query)
+	} else {
+		likePattern := "%" + strings.ToLower(query) + "%"
+		q = r.db.Where("LOWER(username) LIKE ? OR LOWER(bio) LIKE ?", likePattern, likePattern)
+	}
+
 	if limit > 0 {
 		q = q.Limit(limit)
 	}

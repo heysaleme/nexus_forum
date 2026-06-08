@@ -21,6 +21,7 @@ type PostService interface {
 	UnsavePost(userID, postID uint) error
 	GetSavedByUser(userID uint) ([]*model.SavedPost, error)
 	GetVote(userID, postID uint) (*model.Vote, error)
+	Search(query string, limit int) ([]*model.Post, error)
 }
 
 type postService struct {
@@ -128,6 +129,10 @@ func (s *postService) Filter(filter map[string]interface{}, sortSpec string, lim
 	return s.repo.Filter(filter, sortSpec, limit)
 }
 
+func (s *postService) Search(query string, limit int) ([]*model.Post, error) {
+	return s.repo.Search(query, limit)
+}
+
 func (s *postService) Vote(userID, postID uint, value int) error {
 
 	fmt.Println("===== VOTE SERVICE =====")
@@ -166,17 +171,28 @@ func (s *postService) Vote(userID, postID uint, value int) error {
 	existing, err := s.voteRepo.GetVote(userID, "post", postID)
 
 	if err == nil {
-		// Меняем голос +1 <-> -1
-		existing.Value = value
-		_ = s.voteRepo.SaveVote(existing)
-		if value == 1 {
-			post.Upvotes++
-			post.Downvotes = maxZero(post.Downvotes - 1)
-			post.Score += 2
+		if existing.Value == value {
+			_ = s.voteRepo.DeleteVote(userID, "post", postID)
+			if value == 1 {
+				post.Upvotes = maxZero(post.Upvotes - 1)
+				post.Score--
+			} else {
+				post.Downvotes = maxZero(post.Downvotes - 1)
+				post.Score++
+			}
 		} else {
-			post.Downvotes++
-			post.Upvotes = maxZero(post.Upvotes - 1)
-			post.Score -= 2
+			// Меняем голос +1 <-> -1
+			existing.Value = value
+			_ = s.voteRepo.SaveVote(existing)
+			if value == 1 {
+				post.Upvotes++
+				post.Downvotes = maxZero(post.Downvotes - 1)
+				post.Score += 2
+			} else {
+				post.Downvotes++
+				post.Upvotes = maxZero(post.Upvotes - 1)
+				post.Score -= 2
+			}
 		}
 	} else {
 		// New vote

@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Home, Compass, PlusCircle, MessageCircle, User } from 'lucide-react';
+import { Home, Compass, PlusCircle, MessageCircle, User, Shield } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/lib/AuthContext';
 
@@ -15,10 +15,15 @@ export default function BottomNav() {
     const location = useLocation();
     const { user, triggerAuthModal } = useAuth();
 
+    const items = [...navItems];
+    if (user && (user.role === 'admin' || user.role === 'moderator')) {
+        items.splice(4, 0, { icon: Shield, label: 'Админ', path: '/admin' });
+    }
+
     return (
         <nav className="fixed bottom-0 left-0 right-0 z-50 glass border-t border-border/50 md:hidden">
             <div className="flex items-center justify-around px-2 py-2 max-w-lg mx-auto">
-                {navItems.map(({ icon: Icon, label, path, isCenter }) => {
+                {items.map(({ icon: Icon, label, path, isCenter }) => {
                     const isActive = location.pathname === path;
                     const requiresAuth = ['/create', '/chats', '/profile'].includes(path);
                     const handleClick = (e) => {

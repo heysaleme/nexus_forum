@@ -22,6 +22,7 @@ import Chats from '@/pages/Chats';
 import Search from '@/pages/Search';
 import Settings from '@/pages/Settings';
 import AdminPanel from '@/pages/AdminPanel';
+import ModerationReports from '@/pages/ModerationReports';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import ForgotPassword from '@/pages/ForgotPassword';
@@ -87,6 +88,7 @@ const AuthenticatedApp = () => {
                     <Route path="/search" element={<Search />} />
                     <Route path="/settings" element={<Settings />} />
                     <Route path="/admin" element={<AdminPanel />} />
+                    <Route path="/admin/reports" element={<ModerationReports />} />
                 </Route>
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />

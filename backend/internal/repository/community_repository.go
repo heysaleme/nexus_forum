@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"strings"
 	"nexus-forum-backend/internal/model"
 
 	"gorm.io/gorm"
@@ -13,6 +14,7 @@ type CommunityRepository interface {
 	Update(community *model.Community) error
 	List(sortSpec string, limit int) ([]*model.Community, error)
 	Filter(filter map[string]interface{}) ([]*model.Community, error)
+	Search(query string, limit int) ([]*model.Community, error)
 
 	AddMember(member *model.CommunityMember) error
 	RemoveMember(userID, communityID uint) error
@@ -63,6 +65,24 @@ func (r *communityRepository) List(sortSpec string, limit int) ([]*model.Communi
 func (r *communityRepository) Filter(filter map[string]interface{}) ([]*model.Community, error) {
 	var communities []*model.Community
 	err := r.db.Where(filter).Find(&communities).Error
+	return communities, err
+}
+
+func (r *communityRepository) Search(query string, limit int) ([]*model.Community, error) {
+	var communities []*model.Community
+	dialect := r.db.Dialector.Name()
+	var q *gorm.DB
+	if dialect == "postgres" {
+		q = r.db.Where("to_tsvector('simple', name || ' ' || description) @@ plainto_tsquery('simple', ?)", query)
+	} else {
+		likePattern := "%" + strings.ToLower(query) + "%"
+		q = r.db.Where("LOWER(name) LIKE ? OR LOWER(description) LIKE ?", likePattern, likePattern)
+	}
+
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	err := q.Find(&communities).Error
 	return communities, err
 }
 

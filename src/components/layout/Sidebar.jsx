@@ -73,11 +73,11 @@ export default function Sidebar({ user }) {
             </div>
 
             {/* Admin link */}
-            {user?.role === 'admin' && (
-                <Link to="/admin" className="mt-auto">
+            {(user?.role === 'admin' || user?.role === 'moderator') && (
+                <Link to={user.role === 'admin' ? "/admin" : "/admin/reports"} className="mt-auto">
                     <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-all">
                         <Shield className="w-5 h-5" />
-                        <span className="text-sm font-medium">Администрация</span>
+                        <span className="text-sm font-medium">{user.role === 'admin' ? "Администрация" : "Модерация"}</span>
                     </div>
                 </Link>
             )}

@@ -114,11 +114,21 @@ export default function AdminPanel() {
 
     return (
         <div className="max-w-7xl mx-auto px-4 py-4">
-            <div className="flex items-center gap-2 mb-5">
-                <div className="w-9 h-9 bg-destructive/10 rounded-xl flex items-center justify-center">
-                    <Shield className="w-5 h-5 text-destructive" />
+            <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-2">
+                    <div className="w-9 h-9 bg-destructive/10 rounded-xl flex items-center justify-center">
+                        <Shield className="w-5 h-5 text-destructive" />
+                    </div>
+                    <h1 className="text-xl font-display font-black">Администрация</h1>
                 </div>
-                <h1 className="text-xl font-display font-black">Администрация</h1>
+                <Button 
+                    onClick={() => navigate('/admin/reports')} 
+                    variant="outline" 
+                    className="rounded-xl h-8 text-xs font-bold gap-1.5 border-border"
+                >
+                    <Shield className="w-3.5 h-3.5 text-primary" />
+                    Очередь модерации
+                </Button>
             </div>
 
             {/* Stats grid */}
