@@ -21,8 +21,14 @@ func NewNotificationRepository(db *gorm.DB) NotificationRepository {
 	return &notificationRepository{db: db}
 }
 
+var NotificationDispatcher func(userID uint, notif *model.Notification)
+
 func (r *notificationRepository) Create(notification *model.Notification) error {
-	return r.db.Create(notification).Error
+	err := r.db.Create(notification).Error
+	if err == nil && NotificationDispatcher != nil {
+		NotificationDispatcher(notification.UserID, notification)
+	}
+	return err
 }
 
 func (r *notificationRepository) GetByUser(userID uint) ([]*model.Notification, error) {
