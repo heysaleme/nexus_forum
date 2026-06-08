@@ -1,10 +1,11 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowUp, ArrowDown, MessageCircle, Share2, Bookmark, Eye, Trash2, Pin } from 'lucide-react';
+import { ArrowUp, ArrowDown, MessageCircle, Share2, Bookmark, Eye, Trash2, Pin, Flag } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { nexusApi } from '@/api/nexusApi';
 import { useState } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/lib/AuthContext';
+import ReportModal from '@/components/ui/ReportModal';
 
 function timeAgoShort(date) {
     if (!date) return '';
@@ -21,7 +22,10 @@ function timeAgoShort(date) {
     return `${Math.floor(months / 12)}г`;
 }
 
-export default function PostCard({ post, currentUser, onVote, onDeleteSuccess }) {
+export default function PostCard({ post, currentUser: propUser, onVote, onDeleteSuccess }) {
+    const { user: authUser } = useAuth();
+    const currentUser = propUser || authUser;
+    const [reportOpen, setReportOpen] = useState(false);
     const { toast } = useToast();
     const navigate = useNavigate();
     const { triggerAuthModal } = useAuth();
@@ -265,6 +269,15 @@ export default function PostCard({ post, currentUser, onVote, onDeleteSuccess })
                             <Trash2 className="w-3.5 h-3.5" />
                         </button>
                     )}
+                    {currentUser && currentUser.id !== post.author_id && (
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setReportOpen(true); }}
+                            className="h-7 w-7 flex items-center justify-center text-muted-foreground hover:text-orange-500 transition-colors mr-1"
+                            title="Пожаловаться"
+                        >
+                            <Flag className="w-3.5 h-3.5" />
+                        </button>
+                    )}
                     <button
                         onClick={handleSave}
                         className={`h-7 w-7 flex items-center justify-center transition-colors ${saved ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
@@ -279,6 +292,16 @@ export default function PostCard({ post, currentUser, onVote, onDeleteSuccess })
                     </button>
                 </div>
             </div>
+
+            {reportOpen && (
+                <ReportModal
+                    open={reportOpen}
+                    onClose={() => setReportOpen(false)}
+                    targetId={post.id}
+                    targetType="post"
+                    currentUser={currentUser}
+                />
+            )}
         </div>
     );
 }

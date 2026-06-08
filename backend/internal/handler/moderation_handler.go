@@ -154,3 +154,56 @@ func (h *Handlers) GetCommunityModerationLogs(c *gin.Context) {
 
 	c.JSON(http.StatusOK, logs)
 }
+
+func (h *Handlers) GetReports(c *gin.Context) {
+	_, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
+	reports, err := h.ModService.GetReports()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, reports)
+}
+
+func (h *Handlers) UpdateReport(c *gin.Context) {
+	modID, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
+	reportID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+
+	var body struct {
+		Status            string `json:"status"`
+		ModeratorResponse string `json:"moderator_response"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var err error
+	if body.Status == "resolved" {
+		err = h.ModService.ResolveReport(modID, reportID, body.ModeratorResponse)
+	} else if body.Status == "rejected" || body.Status == "dismissed" {
+		err = h.ModService.RejectReport(modID, reportID, body.ModeratorResponse)
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid status, must be resolved or rejected"})
+		return
+	}
+
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}

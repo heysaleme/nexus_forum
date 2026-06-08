@@ -7,20 +7,19 @@ import (
 )
 
 type ModerationService interface {
-	// BanUser bans a user globally. Only admins/mods can do this.
 	BanUser(moderatorID, targetUserID uint, reason string) error
-	// UnbanUser removes a ban. Only admins/mods.
 	UnbanUser(moderatorID, targetUserID uint, reason string) error
-	// RemovePost soft-deletes a post (sets status="removed"). Mods or admins.
 	RemovePost(moderatorID, postID uint, reason string) error
-	// RemoveComment soft-deletes a comment. Mods or admins.
 	RemoveComment(moderatorID, commentID uint, reason string) error
-	// GetLogs returns global moderation log entries.
 	GetLogs(limit int) ([]*model.ModerationLog, error)
-	// GetLogsByCommunity returns mod logs for a specific community.
 	GetLogsByCommunity(communityID uint, limit int) ([]*model.ModerationLog, error)
-	// CreateModerationLog persists any log entry (used for reports).
 	CreateModerationLog(modID uint, modUsername, action, targetType string, targetID uint, reason string) error
+
+	CreateReport(reporterID uint, targetType string, targetID uint, reason string, description string) error
+	GetReports() ([]*model.Report, error)
+	GetReportByID(id uint) (*model.Report, error)
+	ResolveReport(moderatorID uint, reportID uint, moderatorResponse string) error
+	RejectReport(moderatorID uint, reportID uint, moderatorResponse string) error
 }
 
 type moderationService struct {
@@ -29,6 +28,7 @@ type moderationService struct {
 	postRepo    repository.PostRepository
 	commentRepo repository.CommentRepository
 	commRepo    repository.CommunityRepository
+	notifRepo   repository.NotificationRepository
 }
 
 func NewModerationService(
@@ -37,6 +37,7 @@ func NewModerationService(
 	postRepo repository.PostRepository,
 	commentRepo repository.CommentRepository,
 	commRepo repository.CommunityRepository,
+	notifRepo repository.NotificationRepository,
 ) ModerationService {
 	return &moderationService{
 		modRepo:     modRepo,
@@ -44,6 +45,7 @@ func NewModerationService(
 		postRepo:    postRepo,
 		commentRepo: commentRepo,
 		commRepo:    commRepo,
+		notifRepo:   notifRepo,
 	}
 }
 
@@ -78,11 +80,11 @@ func (s *moderationService) BanUser(moderatorID, targetUserID uint, reason strin
 	}
 
 	return s.modRepo.CreateLog(&model.ModerationLog{
-		ModeratorID:       moderatorID,
+		ActorID:           moderatorID,
 		TargetID:          targetUserID,
 		TargetType:        "user",
-		Action:            "ban",
-		Reason:            reason,
+		Action:            "user_banned",
+		Details:           reason,
 		ModeratorUsername: mod.Username,
 	})
 }
@@ -104,11 +106,11 @@ func (s *moderationService) UnbanUser(moderatorID, targetUserID uint, reason str
 	}
 
 	return s.modRepo.CreateLog(&model.ModerationLog{
-		ModeratorID:       moderatorID,
+		ActorID:           moderatorID,
 		TargetID:          targetUserID,
 		TargetType:        "user",
-		Action:            "unban",
-		Reason:            reason,
+		Action:            "user_unbanned",
+		Details:           reason,
 		ModeratorUsername: mod.Username,
 	})
 }
@@ -149,11 +151,11 @@ func (s *moderationService) RemovePost(moderatorID, postID uint, reason string) 
 	}
 
 	return s.modRepo.CreateLog(&model.ModerationLog{
-		ModeratorID:       moderatorID,
+		ActorID:           moderatorID,
 		TargetID:          postID,
 		TargetType:        "post",
-		Action:            "remove_post",
-		Reason:            reason,
+		Action:            "content_removed",
+		Details:           reason,
 		ModeratorUsername: modUsername,
 	})
 }
@@ -196,11 +198,11 @@ func (s *moderationService) RemoveComment(moderatorID, commentID uint, reason st
 	}
 
 	return s.modRepo.CreateLog(&model.ModerationLog{
-		ModeratorID:       moderatorID,
+		ActorID:           moderatorID,
 		TargetID:          commentID,
 		TargetType:        "comment",
-		Action:            "remove_comment",
-		Reason:            reason,
+		Action:            "content_removed",
+		Details:           reason,
 		ModeratorUsername: modUsername,
 	})
 }
@@ -215,11 +217,165 @@ func (s *moderationService) GetLogsByCommunity(communityID uint, limit int) ([]*
 
 func (s *moderationService) CreateModerationLog(modID uint, modUsername, action, targetType string, targetID uint, reason string) error {
 	return s.modRepo.CreateLog(&model.ModerationLog{
-		ModeratorID:       modID,
+		ActorID:           modID,
 		ModeratorUsername: modUsername,
 		Action:            action,
 		TargetType:        targetType,
 		TargetID:          targetID,
-		Reason:            reason,
+		Details:           reason,
 	})
+}
+
+func (s *moderationService) CreateReport(reporterID uint, targetType string, targetID uint, reason string, description string) error {
+	reporter, _ := s.userRepo.GetByID(reporterID)
+	username := "user"
+	if reporter != nil {
+		username = reporter.Username
+	}
+
+	report := &model.Report{
+		ReporterID:       reporterID,
+		ReporterUsername: username,
+		TargetID:         targetID,
+		TargetType:       targetType,
+		Reason:           reason,
+		Description:      description,
+		Status:           "pending",
+	}
+
+	return s.modRepo.CreateReport(report)
+}
+
+func (s *moderationService) GetReports() ([]*model.Report, error) {
+	return s.modRepo.GetReports()
+}
+
+func (s *moderationService) GetReportByID(id uint) (*model.Report, error) {
+	return s.modRepo.GetReportByID(id)
+}
+
+func (s *moderationService) ResolveReport(moderatorID uint, reportID uint, moderatorResponse string) error {
+	mod, err := s.requireAdminOrMod(moderatorID)
+	if err != nil {
+		return err
+	}
+
+	report, err := s.modRepo.GetReportByID(reportID)
+	if err != nil {
+		return err
+	}
+
+	report.Status = "resolved"
+	report.ModeratorResponse = moderatorResponse
+	err = s.modRepo.UpdateReport(report)
+	if err != nil {
+		return err
+	}
+
+	// Perform action based on target type
+	if report.TargetType == "post" {
+		post, err := s.postRepo.GetByID(report.TargetID)
+		if err == nil && post.Status != "removed" {
+			post.Status = "removed"
+			_ = s.postRepo.Update(post)
+			// Notify author
+			notif := &model.Notification{
+				UserID:      post.AuthorID,
+				Type:        "content_removed",
+				Title:       "Публикация удалена",
+				Body:        "Ваша публикация '" + post.Title + "' была удалена модератором: " + moderatorResponse,
+			}
+			_ = s.notifRepo.Create(notif)
+		}
+	} else if report.TargetType == "comment" {
+		comment, err := s.commentRepo.GetByID(report.TargetID)
+		if err == nil && !comment.IsDeleted {
+			comment.IsDeleted = true
+			comment.Content = "[удалено модератором]"
+			_ = s.commentRepo.Update(comment)
+			// Notify author
+			notif := &model.Notification{
+				UserID:      comment.AuthorID,
+				Type:        "content_removed",
+				Title:       "Комментарий удален",
+				Body:        "Ваш комментарий был удален модератором: " + moderatorResponse,
+			}
+			_ = s.notifRepo.Create(notif)
+		}
+	} else if report.TargetType == "user" {
+		targetUser, err := s.userRepo.GetByID(report.TargetID)
+		if err == nil && !targetUser.IsBanned {
+			targetUser.IsBanned = true
+			_ = s.userRepo.Update(targetUser)
+			// Notify user
+			notif := &model.Notification{
+				UserID:      targetUser.ID,
+				Type:        "user_banned",
+				Title:       "Аккаунт заблокирован",
+				Body:        "Ваш аккаунт был заблокирован модератором: " + moderatorResponse,
+			}
+			_ = s.notifRepo.Create(notif)
+		}
+	}
+
+	// Notify reporter
+	notif := &model.Notification{
+		UserID:      report.ReporterID,
+		Type:        "report_resolved",
+		Title:       "Жалоба рассмотрена",
+		Body:        "Ваша жалоба на тему '" + report.Reason + "' была одобрена модератором: " + moderatorResponse,
+	}
+	_ = s.notifRepo.Create(notif)
+
+	// Write audit log
+	_ = s.modRepo.CreateLog(&model.ModerationLog{
+		ActorID:           moderatorID,
+		TargetID:          reportID,
+		TargetType:        "report",
+		Action:            "report_resolved",
+		Details:           "Report resolved: " + moderatorResponse,
+		ModeratorUsername: mod.Username,
+	})
+
+	return nil
+}
+
+func (s *moderationService) RejectReport(moderatorID uint, reportID uint, moderatorResponse string) error {
+	mod, err := s.requireAdminOrMod(moderatorID)
+	if err != nil {
+		return err
+	}
+
+	report, err := s.modRepo.GetReportByID(reportID)
+	if err != nil {
+		return err
+	}
+
+	report.Status = "rejected"
+	report.ModeratorResponse = moderatorResponse
+	err = s.modRepo.UpdateReport(report)
+	if err != nil {
+		return err
+	}
+
+	// Notify reporter
+	notif := &model.Notification{
+		UserID:      report.ReporterID,
+		Type:        "report_rejected",
+		Title:       "Жалоба отклонена",
+		Body:        "Ваша жалоба на тему '" + report.Reason + "' была отклонена модератором: " + moderatorResponse,
+	}
+	_ = s.notifRepo.Create(notif)
+
+	// Write audit log
+	_ = s.modRepo.CreateLog(&model.ModerationLog{
+		ActorID:           moderatorID,
+		TargetID:          reportID,
+		TargetType:        "report",
+		Action:            "report_rejected",
+		Details:           "Report rejected: " + moderatorResponse,
+		ModeratorUsername: mod.Username,
+	})
+
+	return nil
 }
