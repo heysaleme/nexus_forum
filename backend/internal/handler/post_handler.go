@@ -170,16 +170,43 @@ func (h *Handlers) ListPosts(c *gin.Context) {
 
 	userID, authenticated := getOptionalUserID(c, h.AuthService)
 
-	println("USER:", userID)
+	_, hasCommunity := filter["community_id"]
+	_, hasAuthor := filter["author_id"]
+	isGeneralFeed := !hasCommunity && !hasAuthor
 
-	println("AUTH:", authenticated)
+	var visiblePosts []*model.Post
+	for _, post := range posts {
+		author, err := h.UserService.GetByID(post.AuthorID)
+		if err != nil {
+			visiblePosts = append(visiblePosts, post)
+			continue
+		}
+		if author.IsPrivate {
+			if isGeneralFeed {
+				continue
+			}
+			isAuthorized := false
+			if authenticated {
+				if userID == post.AuthorID {
+					isAuthorized = true
+				} else {
+					following, _ := h.UserService.IsFollowing(userID, post.AuthorID)
+					if following {
+						isAuthorized = true
+					}
+				}
+			}
+			if !isAuthorized {
+				continue
+			}
+		}
+		visiblePosts = append(visiblePosts, post)
+	}
+	posts = visiblePosts
 
 	if authenticated {
 		for _, post := range posts {
 			vote, err := h.PostService.GetVote(userID, post.ID)
-			fmt.Println("POST:", post.ID)
-
-			fmt.Println("ERR:", err)
 			if err == nil {
 				post.UserVote = vote.Value
 			}

@@ -66,10 +66,14 @@ func main() {
 		&model.Message{},
 		&model.ModerationLog{},
 		&model.AnalyticsEvent{},
+		&model.Report{},
 	)
 	if err != nil {
 		log.Fatalf("failed to auto migrate tables: %v", err)
 	}
+
+	// Data fix for existing follows
+	db.Exec("UPDATE user_follows SET status = 'accepted' WHERE status = '' OR status IS NULL")
 
 	logger.Info("database auto-migrations complete")
 
@@ -89,14 +93,14 @@ func main() {
 	modRepo := repository.NewModerationRepository(db)
 	analyticsRepo := repository.NewAnalyticsRepository(db)
 
-	authService := service.NewAuthService(userRepo, cfg.JWTSecret)
-	userService := service.NewUserService(userRepo, followRepo)
+	authService := service.NewAuthService(userRepo, modRepo, cfg.JWTSecret)
+	userService := service.NewUserService(userRepo, followRepo, notifRepo, modRepo)
 	commService := service.NewCommunityService(commRepo, userRepo)
 	postService := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, savedRepo, notifRepo)
 	commentService := service.NewCommentService(commentRepo, userRepo, postRepo, voteRepo, notifRepo, commRepo)
 	chatService := service.NewChatService(chatRepo, userRepo)
 	notifService := service.NewNotificationService(notifRepo)
-	modService := service.NewModerationService(modRepo, userRepo, postRepo, commentRepo, commRepo)
+	modService := service.NewModerationService(modRepo, userRepo, postRepo, commentRepo, commRepo, notifRepo)
 	analyticsService := service.NewAnalyticsService(analyticsRepo, userRepo, postRepo)
 
 	// WebSocket hub (starts background goroutine)
@@ -151,14 +155,19 @@ func main() {
 		secured := api.Group("")
 		secured.Use(middleware.AuthMiddleware(authService))
 		{
-			// Current user profile
+			// User/Auth actions
 			secured.GET("/auth/me", handlers.GetMe)
 			secured.PUT("/auth/me", handlers.UpdateMe)
+			secured.POST("/auth/change-password", handlers.ChangePassword)
 			secured.PUT("/users/:id", handlers.UpdateUser)
 
 			// Follow operations
 			secured.POST("/users/:id/follow", handlers.Follow)
 			secured.POST("/users/:id/unfollow", handlers.Unfollow)
+			secured.GET("/users/follow-requests", handlers.GetFollowRequests)
+			secured.POST("/users/follow-requests/:follower_id/accept", handlers.AcceptFollowRequest)
+			secured.POST("/users/follow-requests/:follower_id/reject", handlers.RejectFollowRequest)
+			secured.GET("/users/:id/follow-status", handlers.GetFollowStatus)
 
 			// Community actions
 			secured.POST("/communities", handlers.CreateCommunity)
@@ -186,6 +195,7 @@ func main() {
 			secured.POST("/chats", handlers.CreateChatRoom)
 			secured.GET("/chats", handlers.GetChatRooms)
 			secured.PUT("/chats/:id", handlers.UpdateChatRoom)
+			secured.DELETE("/chats/:id", handlers.DeleteChatRoom)
 			secured.GET("/chats/:id/messages", handlers.GetMessages)
 			secured.POST("/chats/:id/messages", handlers.SendMessage)
 			secured.DELETE("/messages/:id", handlers.DeleteMessage)
@@ -206,6 +216,8 @@ func main() {
 			secured.POST("/moderation/comments/:id/remove", handlers.RemoveComment)
 			secured.GET("/moderation/logs", handlers.GetModerationLogs)
 			secured.GET("/moderation/communities/:id/logs", handlers.GetCommunityModerationLogs)
+			secured.GET("/moderation/reports", handlers.GetReports)
+			secured.PUT("/moderation/reports/:id", handlers.UpdateReport)
 
 			// Analytics (admin only enforced by role check in middleware or service)
 			secured.GET("/analytics/dashboard", handlers.GetAnalyticsDashboard)

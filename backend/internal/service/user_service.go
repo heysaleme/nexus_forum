@@ -9,22 +9,39 @@ import (
 type UserService interface {
 	GetByID(id uint) (*model.User, error)
 	UpdateProfile(userID uint, req model.User) (*model.User, error)
-	Follow(followerID, followingID uint) error
-	Unfollow(followerID, followingID uint) error
-	List(sortSpec string, limit int) ([]*model.User, error)
-	UpdateUser(userID uint, role string, isBanned *bool) (*model.User, error)
+	UpdateUser(actorID, userID uint, role string, isBanned *bool) (*model.User, error)
 	IsFollowing(followerID, followingID uint) (bool, error)
 	GetFollowers(userID uint) ([]*model.User, error)
 	GetFollowing(userID uint) ([]*model.User, error)
+	Follow(followerID, followingID uint) error
+	Unfollow(followerID, followingID uint) error
+	List(sortSpec string, limit int) ([]*model.User, error)
+	AcceptFollowRequest(followerID, followingID uint) error
+	RejectFollowRequest(followerID, followingID uint) error
+	GetPendingFollowRequests(userID uint) ([]*model.User, error)
+	GetFollowRecord(followerID, followingID uint) (*model.UserFollow, error)
+	Search(query string, limit int) ([]*model.User, error)
 }
 
 type userService struct {
 	repo       repository.UserRepository
 	followRepo repository.FollowRepository
+	notifRepo  repository.NotificationRepository
+	modRepo    repository.ModerationRepository
 }
 
-func NewUserService(repo repository.UserRepository, followRepo repository.FollowRepository) UserService {
-	return &userService{repo: repo, followRepo: followRepo}
+func NewUserService(
+	repo repository.UserRepository,
+	followRepo repository.FollowRepository,
+	notifRepo repository.NotificationRepository,
+	modRepo repository.ModerationRepository,
+) UserService {
+	return &userService{
+		repo:       repo,
+		followRepo: followRepo,
+		notifRepo:  notifRepo,
+		modRepo:    modRepo,
+	}
 }
 
 func (s *userService) GetByID(id uint) (*model.User, error) {
@@ -67,14 +84,28 @@ func (s *userService) Follow(followerID, followingID uint) error {
 		return errors.New("cannot follow yourself")
 	}
 
-	_, err := s.followRepo.GetFollow(followerID, followingID)
+	existing, err := s.followRepo.GetFollow(followerID, followingID)
 	if err == nil {
+		if existing.Status == "pending" {
+			return errors.New("follow request already pending")
+		}
 		return errors.New("already following")
+	}
+
+	followingUser, err := s.repo.GetByID(followingID)
+	if err != nil {
+		return errors.New("user not found")
+	}
+
+	status := "accepted"
+	if followingUser.IsPrivate {
+		status = "pending"
 	}
 
 	follow := &model.UserFollow{
 		FollowerID:  followerID,
 		FollowingID: followingID,
+		Status:      status,
 	}
 
 	err = s.followRepo.Follow(follow)
@@ -82,41 +113,59 @@ func (s *userService) Follow(followerID, followingID uint) error {
 		return err
 	}
 
-	// Update stats & add XP
-	follower, _ := s.repo.GetByID(followerID)
-	if follower != nil {
-		follower.FollowingCount++
-		follower.XP += 4
-		recalculateLevel(follower)
-		_ = s.repo.Update(follower)
-	}
+	followerUser, _ := s.repo.GetByID(followerID)
 
-	following, _ := s.repo.GetByID(followingID)
-	if following != nil {
-		following.FollowersCount++
-		recalculateLevel(following)
-		_ = s.repo.Update(following)
+	if status == "accepted" {
+		// Update stats & add XP
+		if followerUser != nil {
+			followerUser.FollowingCount++
+			followerUser.XP += 4
+			recalculateLevel(followerUser)
+			_ = s.repo.Update(followerUser)
+		}
+		followingUser.FollowersCount++
+		recalculateLevel(followingUser)
+		_ = s.repo.Update(followingUser)
+	} else {
+		// Send pending notification
+		if followerUser != nil {
+			notif := &model.Notification{
+				UserID:      followingID,
+				Type:        "follow_request",
+				Title:       "Запрос на подписку",
+				Body:        followerUser.Username + " хочет подписаться на ваши обновления.",
+				ActorAvatar: followerUser.AvatarURL,
+			}
+			_ = s.notifRepo.Create(notif)
+		}
 	}
 
 	return nil
 }
 
 func (s *userService) Unfollow(followerID, followingID uint) error {
-	err := s.followRepo.Unfollow(followerID, followingID)
+	follow, err := s.followRepo.GetFollow(followerID, followingID)
+	if err != nil {
+		return errors.New("not following")
+	}
+
+	err = s.followRepo.Unfollow(followerID, followingID)
 	if err != nil {
 		return err
 	}
 
-	follower, _ := s.repo.GetByID(followerID)
-	if follower != nil && follower.FollowingCount > 0 {
-		follower.FollowingCount--
-		_ = s.repo.Update(follower)
-	}
+	if follow.Status == "accepted" {
+		follower, _ := s.repo.GetByID(followerID)
+		if follower != nil && follower.FollowingCount > 0 {
+			follower.FollowingCount--
+			_ = s.repo.Update(follower)
+		}
 
-	following, _ := s.repo.GetByID(followingID)
-	if following != nil && following.FollowersCount > 0 {
-		following.FollowersCount--
-		_ = s.repo.Update(following)
+		following, _ := s.repo.GetByID(followingID)
+		if following != nil && following.FollowersCount > 0 {
+			following.FollowersCount--
+			_ = s.repo.Update(following)
+		}
 	}
 
 	return nil
@@ -126,17 +175,36 @@ func (s *userService) List(sortSpec string, limit int) ([]*model.User, error) {
 	return s.repo.List(sortSpec, limit)
 }
 
-func (s *userService) UpdateUser(userID uint, role string, isBanned *bool) (*model.User, error) {
+func (s *userService) UpdateUser(actorID, userID uint, role string, isBanned *bool) (*model.User, error) {
 	user, err := s.repo.GetByID(userID)
 	if err != nil {
 		return nil, err
 	}
 
-	if role != "" {
+	if role != "" && role != user.Role {
+		oldRole := user.Role
 		user.Role = role
+		_ = s.modRepo.CreateLog(&model.ModerationLog{
+			ActorID:    actorID,
+			TargetID:   userID,
+			TargetType: "user",
+			Action:     "role_changed",
+			Details:    "Changed role from " + oldRole + " to " + role,
+		})
 	}
-	if isBanned != nil {
+	if isBanned != nil && *isBanned != user.IsBanned {
 		user.IsBanned = *isBanned
+		action := "user_banned"
+		if !*isBanned {
+			action = "user_unbanned"
+		}
+		_ = s.modRepo.CreateLog(&model.ModerationLog{
+			ActorID:    actorID,
+			TargetID:   userID,
+			TargetType: "user",
+			Action:     action,
+			Details:    "User ban status updated",
+		})
 	}
 
 	err = s.repo.Update(user)
@@ -144,11 +212,11 @@ func (s *userService) UpdateUser(userID uint, role string, isBanned *bool) (*mod
 }
 
 func (s *userService) IsFollowing(followerID, followingID uint) (bool, error) {
-	_, err := s.followRepo.GetFollow(followerID, followingID)
+	follow, err := s.followRepo.GetFollow(followerID, followingID)
 	if err != nil {
 		return false, nil
 	}
-	return true, nil
+	return follow.Status == "accepted", nil
 }
 
 func (s *userService) GetFollowers(userID uint) ([]*model.User, error) {
@@ -177,4 +245,120 @@ func (s *userService) GetFollowing(userID uint) ([]*model.User, error) {
 		}
 	}
 	return users, nil
+}
+
+func (s *userService) AcceptFollowRequest(followerID, followingID uint) error {
+	follow, err := s.followRepo.GetFollow(followerID, followingID)
+	if err != nil {
+		return errors.New("follow request not found")
+	}
+	if follow.Status != "pending" {
+		return errors.New("request is not pending")
+	}
+
+	follow.Status = "accepted"
+	err = s.followRepo.Update(follow)
+	if err != nil {
+		return err
+	}
+
+	// Update stats & add XP
+	follower, _ := s.repo.GetByID(followerID)
+	if follower != nil {
+		follower.FollowingCount++
+		follower.XP += 4
+		recalculateLevel(follower)
+		_ = s.repo.Update(follower)
+	}
+
+	following, _ := s.repo.GetByID(followingID)
+	if following != nil {
+		following.FollowersCount++
+		recalculateLevel(following)
+		_ = s.repo.Update(following)
+	}
+
+	// Send notification
+	if following != nil {
+		notif := &model.Notification{
+			UserID:      followerID,
+			Type:        "follow_accept",
+			Title:       "Запрос принят",
+			Body:        following.Username + " принял ваш запрос на подписку.",
+			ActorAvatar: following.AvatarURL,
+		}
+		_ = s.notifRepo.Create(notif)
+	}
+
+	// Write audit log
+	_ = s.modRepo.CreateLog(&model.ModerationLog{
+		ActorID:    followingID,
+		TargetID:   followerID,
+		TargetType: "user",
+		Action:     "follow_request_accepted",
+		Details:    "Accepted follow request",
+	})
+
+	return nil
+}
+
+func (s *userService) RejectFollowRequest(followerID, followingID uint) error {
+	follow, err := s.followRepo.GetFollow(followerID, followingID)
+	if err != nil {
+		return errors.New("follow request not found")
+	}
+	if follow.Status != "pending" {
+		return errors.New("request is not pending")
+	}
+
+	err = s.followRepo.Unfollow(followerID, followingID)
+	if err != nil {
+		return err
+	}
+
+	// Send notification
+	following, _ := s.repo.GetByID(followingID)
+	if following != nil {
+		notif := &model.Notification{
+			UserID:      followerID,
+			Type:        "follow_reject",
+			Title:       "Запрос отклонен",
+			Body:        following.Username + " отклонил ваш запрос на подписку.",
+			ActorAvatar: following.AvatarURL,
+		}
+		_ = s.notifRepo.Create(notif)
+	}
+
+	// Write audit log
+	_ = s.modRepo.CreateLog(&model.ModerationLog{
+		ActorID:    followingID,
+		TargetID:   followerID,
+		TargetType: "user",
+		Action:     "follow_request_rejected",
+		Details:    "Rejected follow request",
+	})
+
+	return nil
+}
+
+func (s *userService) GetPendingFollowRequests(userID uint) ([]*model.User, error) {
+	follows, err := s.followRepo.GetPendingRequests(userID)
+	if err != nil {
+		return nil, err
+	}
+	var users []*model.User
+	for _, f := range follows {
+		if u, err := s.repo.GetByID(f.FollowerID); err == nil {
+			users = append(users, u)
+		}
+	}
+	return users, nil
+}
+
+func (s *userService) GetFollowRecord(followerID, followingID uint) (*model.UserFollow, error) {
+	return s.followRepo.GetFollow(followerID, followingID)
+}
+
+func (s *userService) Search(query string, limit int) ([]*model.User, error) {
+	return s.repo.Search(query, limit)
 }

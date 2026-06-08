@@ -29,5 +29,6 @@ type UserFollow struct {
 	ID          uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	FollowerID  uint      `gorm:"not null;uniqueIndex:idx_follower_following" json:"follower_id"`
 	FollowingID uint      `gorm:"not null;uniqueIndex:idx_follower_following" json:"following_id"`
+	Status      string    `gorm:"default:'accepted';not null" json:"status"`
 	CreatedAt   time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"created_date"`
 }

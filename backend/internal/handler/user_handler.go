@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"nexus-forum-backend/internal/model"
 )
 
 // ================= User Handlers =================
@@ -18,6 +19,29 @@ func (h *Handlers) GetUserByID(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
+	}
+
+	// Verify privacy for stats
+	reqUserID, isAuthenticated := getOptionalUserID(c, h.AuthService)
+	isAuthorized := false
+	if user.IsPrivate {
+		if isAuthenticated {
+			if reqUserID == user.ID {
+				isAuthorized = true
+			} else {
+				following, _ := h.UserService.IsFollowing(reqUserID, user.ID)
+				if following {
+					isAuthorized = true
+				}
+			}
+		}
+		if !isAuthorized {
+			user.FollowersCount = 0
+			user.FollowingCount = 0
+			user.XP = 0
+			user.Level = 1
+			user.Bio = ""
+		}
 	}
 
 	c.JSON(http.StatusOK, user)
@@ -70,7 +94,30 @@ func (h *Handlers) ListUsers(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, users)
+
+	reqUserID, isAuthenticated := getOptionalUserID(c, h.AuthService)
+	var visibleUsers []*model.User
+	for _, u := range users {
+		if u.IsPrivate {
+			isAuthorized := false
+			if isAuthenticated {
+				if reqUserID == u.ID {
+					isAuthorized = true
+				} else {
+					following, _ := h.UserService.IsFollowing(reqUserID, u.ID)
+					if following {
+						isAuthorized = true
+					}
+				}
+			}
+			if !isAuthorized {
+				continue // skip private user if not authorized
+			}
+		}
+		visibleUsers = append(visibleUsers, u)
+	}
+
+	c.JSON(http.StatusOK, visibleUsers)
 }
 
 func (h *Handlers) UpdateUser(c *gin.Context) {
@@ -94,7 +141,12 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	updated, err := h.UserService.UpdateUser(targetID, req.Role, req.IsBanned)
+	actorID, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
+	updated, err := h.UserService.UpdateUser(actorID, targetID, req.Role, req.IsBanned)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -109,6 +161,28 @@ func (h *Handlers) GetFollowers(c *gin.Context) {
 	if !ok {
 		return
 	}
+
+	// Verify privacy
+	targetUser, err := h.UserService.GetByID(userID)
+	if err == nil && targetUser.IsPrivate {
+		reqUserID, isAuthenticated := getOptionalUserID(c, h.AuthService)
+		isAuthorized := false
+		if isAuthenticated {
+			if reqUserID == userID {
+				isAuthorized = true
+			} else {
+				following, _ := h.UserService.IsFollowing(reqUserID, userID)
+				if following {
+					isAuthorized = true
+				}
+			}
+		}
+		if !isAuthorized {
+			c.JSON(http.StatusForbidden, gin.H{"error": "This account is private. Follow to view followers."})
+			return
+		}
+	}
+
 	followers, err := h.UserService.GetFollowers(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -123,6 +197,28 @@ func (h *Handlers) GetFollowing(c *gin.Context) {
 	if !ok {
 		return
 	}
+
+	// Verify privacy
+	targetUser, err := h.UserService.GetByID(userID)
+	if err == nil && targetUser.IsPrivate {
+		reqUserID, isAuthenticated := getOptionalUserID(c, h.AuthService)
+		isAuthorized := false
+		if isAuthenticated {
+			if reqUserID == userID {
+				isAuthorized = true
+			} else {
+				following, _ := h.UserService.IsFollowing(reqUserID, userID)
+				if following {
+					isAuthorized = true
+				}
+			}
+		}
+		if !isAuthorized {
+			c.JSON(http.StatusForbidden, gin.H{"error": "This account is private. Follow to view following."})
+			return
+		}
+	}
+
 	following, err := h.UserService.GetFollowing(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -149,18 +245,87 @@ func (h *Handlers) CreateReport(c *gin.Context) {
 		return
 	}
 
-	// Persist via moderation service log (reuse existing model)
-	user, _ := h.UserService.GetByID(uid)
-	username := "user"
-	if user != nil {
-		username = user.Username
-	}
-
-	err := h.ModService.CreateModerationLog(uid, username, "report", req.TargetType, req.TargetID, req.Reason+": "+req.Description)
+	err := h.ModService.CreateReport(uid, req.TargetType, req.TargetID, req.Reason, req.Description)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"success": true, "message": "Report submitted"})
+}
+
+func (h *Handlers) GetFollowRequests(c *gin.Context) {
+	uid, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
+	requests, err := h.UserService.GetPendingFollowRequests(uid)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, requests)
+}
+
+func (h *Handlers) AcceptFollowRequest(c *gin.Context) {
+	uid, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
+	followerID, ok := parseID(c, "follower_id")
+	if !ok {
+		return
+	}
+
+	err := h.UserService.AcceptFollowRequest(followerID, uid)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func (h *Handlers) RejectFollowRequest(c *gin.Context) {
+	uid, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
+	followerID, ok := parseID(c, "follower_id")
+	if !ok {
+		return
+	}
+
+	err := h.UserService.RejectFollowRequest(followerID, uid)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func (h *Handlers) GetFollowStatus(c *gin.Context) {
+	reqUserID, isAuthenticated := getOptionalUserID(c, h.AuthService)
+	if !isAuthenticated {
+		c.JSON(http.StatusOK, gin.H{"status": "none"})
+		return
+	}
+
+	targetID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+
+	follow, err := h.UserService.GetFollowRecord(reqUserID, targetID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"status": "none"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": follow.Status})
 }

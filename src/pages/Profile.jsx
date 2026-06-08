@@ -6,10 +6,11 @@ import PostCard from '@/components/feed/PostCard';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import EmptyState from '@/components/ui/EmptyState';
 import FollowersModal from '@/components/ui/FollowersModal';
+import ReportModal from '@/components/ui/ReportModal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { User, Star, FileText, Bookmark, Trophy, Settings, UserPlus, UserMinus } from 'lucide-react';
+import { User, Star, FileText, Bookmark, Trophy, Settings, UserPlus, UserMinus, Clock, Flag } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useToast } from '@/components/ui/use-toast';
 import { useNavigate } from 'react-router-dom';
@@ -51,6 +52,8 @@ export default function Profile() {
     const [savedPosts, setSavedPosts] = useState([]);
     const [achievements, setAchievements] = useState([]);
     const [isFollowing, setIsFollowing] = useState(false);
+    const [followStatus, setFollowStatus] = useState('none');
+    const [reportOpen, setReportOpen] = useState(false);
     const [loading, setLoading] = useState(true);
     // Followers modal state
     const [followersModalOpen, setFollowersModalOpen] = useState(false);
@@ -74,8 +77,19 @@ export default function Profile() {
         setAchievements(userAchievements);
 
         if (!isOwn && currentUser) {
-            const follows = await nexusApi.entities.UserFollow.filter({ follower_id: currentUser.id, following_id: targetId });
-            setIsFollowing(follows.length > 0);
+            try {
+                const follows = await nexusApi.entities.UserFollow.filter({ follower_id: currentUser.id, following_id: targetId });
+                if (follows.length > 0) {
+                    setFollowStatus(follows[0].status);
+                    setIsFollowing(follows[0].status === 'accepted');
+                } else {
+                    setFollowStatus('none');
+                    setIsFollowing(false);
+                }
+            } catch (err) {
+                setFollowStatus('none');
+                setIsFollowing(false);
+            }
         }
 
         if (isOwn && currentUser) {
@@ -88,16 +102,30 @@ export default function Profile() {
 
     const handleFollow = async () => {
         if (!currentUser) { navigate('/login'); return; }
-        if (isFollowing) {
+        if (followStatus === 'accepted' || followStatus === 'pending') {
             await nexusApi.entities.UserFollow.delete(targetId);
+            const wasAccepted = followStatus === 'accepted';
+            setFollowStatus('none');
             setIsFollowing(false);
-            setProfileUser(prev => prev ? { ...prev, followers_count: Math.max(0, (prev.followers_count || 1) - 1) } : prev);
-            toast({ title: 'Отписка оформлена' });
+            if (wasAccepted) {
+                setProfileUser(prev => prev ? { ...prev, followers_count: Math.max(0, (prev.followers_count || 1) - 1) } : prev);
+                toast({ title: 'Отписка оформлена' });
+            } else {
+                toast({ title: 'Запрос отменен' });
+            }
         } else {
             await nexusApi.entities.UserFollow.create({ follower_id: currentUser.id, following_id: targetId });
-            setIsFollowing(true);
-            setProfileUser(prev => prev ? { ...prev, followers_count: (prev.followers_count || 0) + 1 } : prev);
-            toast({ title: '✅ Вы подписались!' });
+            const displayUser = profileUser || currentUser;
+            if (displayUser.is_private) {
+                setFollowStatus('pending');
+                setIsFollowing(false);
+                toast({ title: '✉️ Запрос на подписку отправлен!' });
+            } else {
+                setFollowStatus('accepted');
+                setIsFollowing(true);
+                setProfileUser(prev => prev ? { ...prev, followers_count: (prev.followers_count || 0) + 1 } : prev);
+                toast({ title: '✅ Вы подписались!' });
+            }
         }
     };
 
@@ -121,9 +149,11 @@ export default function Profile() {
     const levelColor = LEVEL_COLORS[Math.min(level - 1, LEVEL_COLORS.length - 1)];
 
     // Isolate slash-containing classes from ternary operators in JSX to avoid esbuild parser issues
-    const followBtnClass = isFollowing
+    const followBtnClass = followStatus === 'accepted'
         ? 'bg-muted text-muted-foreground hover:bg-destructive/10 hover:text-destructive'
-        : 'nexus-gradient border-0 text-white shadow-nexus';
+        : followStatus === 'pending'
+            ? 'bg-orange-100 text-orange-700 hover:bg-destructive/10 hover:text-destructive'
+            : 'nexus-gradient border-0 text-white shadow-nexus';
 
     return (
         <div>
@@ -193,8 +223,10 @@ export default function Profile() {
                             size="sm"
                             className={`rounded-xl h-8 gap-1.5 text-xs font-bold ${followBtnClass}`}
                         >
-                            {isFollowing ? (
+                            {followStatus === 'accepted' ? (
                                 <><UserMinus className="w-3.5 h-3.5" />Отписаться</>
+                            ) : followStatus === 'pending' ? (
+                                <><Clock className="w-3.5 h-3.5" />Запрос отправлен</>
                             ) : (
                                 <><UserPlus className="w-3.5 h-3.5" />Подписаться</>
                             )}
@@ -204,6 +236,17 @@ export default function Profile() {
                                 Сообщение
                             </Button>
                         </Link>
+                        {currentUser && (
+                            <Button
+                                onClick={() => setReportOpen(true)}
+                                size="sm"
+                                variant="outline"
+                                className="rounded-xl h-8 text-xs font-bold gap-1.5 text-orange-600 hover:text-orange-700 hover:bg-orange-50 border-orange-200"
+                            >
+                                <Flag className="w-3.5 h-3.5" />
+                                Пожаловаться
+                            </Button>
+                        )}
                         {currentUser && (currentUser.role === 'admin' || currentUser.role === 'moderator') && (
                             <Button
                                 onClick={handleBanUser}
@@ -221,33 +264,33 @@ export default function Profile() {
             {/* Stats — three equal columns with clickable followers/following */}
             <div className="flex border-b border-border/30">
                 <div className="flex-1 flex flex-col items-center py-3 border-r border-border/30">
-                    <span className="text-sm font-black text-foreground">{displayUser?.xp || 0}</span>
+                    <span className="text-sm font-black text-foreground">{(displayUser.is_private && !isOwn && followStatus !== 'accepted') ? '—' : (displayUser?.xp || 0)}</span>
                     <span className="text-[10px] text-muted-foreground flex items-center gap-0.5"><Star className="w-2.5 h-2.5 text-yellow-500" />XP</span>
                 </div>
                 <button
                     onClick={() => {
-                        if (!displayUser.is_private || isOwn) {
+                        if (!displayUser.is_private || isOwn || followStatus === 'accepted') {
                             setFollowersModalTab('followers');
                             setFollowersModalOpen(true);
                         }
                     }}
                     className="flex-1 flex flex-col items-center py-3 border-r border-border/30 hover:bg-muted/30 transition-colors"
-                    disabled={displayUser.is_private && !isOwn}
+                    disabled={displayUser.is_private && !isOwn && followStatus !== 'accepted'}
                 >
-                    <span className="text-sm font-black text-foreground">{displayUser?.followers_count || 0}</span>
+                    <span className="text-sm font-black text-foreground">{(displayUser.is_private && !isOwn && followStatus !== 'accepted') ? '—' : (displayUser?.followers_count || 0)}</span>
                     <span className="text-[10px] text-muted-foreground">подписчиков</span>
                 </button>
                 <button
                     onClick={() => {
-                        if (!displayUser.is_private || isOwn) {
+                        if (!displayUser.is_private || isOwn || followStatus === 'accepted') {
                             setFollowersModalTab('following');
                             setFollowersModalOpen(true);
                         }
                     }}
                     className="flex-1 flex flex-col items-center py-3 hover:bg-muted/30 transition-colors"
-                    disabled={displayUser.is_private && !isOwn}
+                    disabled={displayUser.is_private && !isOwn && followStatus !== 'accepted'}
                 >
-                    <span className="text-sm font-black text-foreground">{displayUser?.following_count || 0}</span>
+                    <span className="text-sm font-black text-foreground">{(displayUser.is_private && !isOwn && followStatus !== 'accepted') ? '—' : (displayUser?.following_count || 0)}</span>
                     <span className="text-[10px] text-muted-foreground">подписок</span>
                 </button>
             </div>
@@ -261,7 +304,7 @@ export default function Profile() {
             />
 
             {/* Tabs or Private Lock */}
-            {displayUser.is_private && !isOwn && !isFollowing ? (
+            {displayUser.is_private && !isOwn && followStatus !== 'accepted' ? (
                 <div className="flex flex-col items-center justify-center py-20 px-4 text-center my-6">
                     <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4 text-muted-foreground text-2xl border border-border">
                         🔒
@@ -351,6 +394,16 @@ export default function Profile() {
                         </TabsContent>
                     </Tabs>
                 </div>
+            )}
+
+            {reportOpen && (
+                <ReportModal
+                    open={reportOpen}
+                    onClose={() => setReportOpen(false)}
+                    targetId={displayUser.id}
+                    targetType="user"
+                    currentUser={currentUser}
+                />
             )}
         </div>
     );

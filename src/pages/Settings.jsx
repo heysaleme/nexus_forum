@@ -34,6 +34,26 @@ export default function Settings() {
         profile_theme: 'default', title: '', allow_dms: true, is_private: false,
     });
 
+    const [pendingRequests, setPendingRequests] = useState([]);
+    const [loadingRequests, setLoadingRequests] = useState(false);
+
+    const [oldPassword, setOldPassword] = useState('');
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [changingPassword, setChangingPassword] = useState(false);
+
+    const loadPendingRequests = async () => {
+        if (!user || !user.is_private) return;
+        setLoadingRequests(true);
+        try {
+            const data = await nexusApi.entities.UserFollow.getPendingRequests();
+            setPendingRequests(data || []);
+        } catch (err) {
+            console.error('Failed to load pending requests:', err);
+        }
+        setLoadingRequests(false);
+    };
+
     useEffect(() => {
         if (user) {
             setProfile({
@@ -46,8 +66,53 @@ export default function Settings() {
                 allow_dms: user.allow_dms !== false,
                 is_private: user.is_private || false,
             });
+            if (user.is_private) {
+                loadPendingRequests();
+            }
         }
     }, [user]);
+
+    const handleAcceptRequest = async (followerId) => {
+        try {
+            await nexusApi.entities.UserFollow.acceptRequest(followerId);
+            setPendingRequests(prev => prev.filter(r => r.id !== followerId));
+            toast({ title: '✅ Запрос принят' });
+        } catch (err) {
+            toast({ title: 'Не удалось принять запрос', variant: 'destructive' });
+        }
+    };
+
+    const handleRejectRequest = async (followerId) => {
+        try {
+            await nexusApi.entities.UserFollow.rejectRequest(followerId);
+            setPendingRequests(prev => prev.filter(r => r.id !== followerId));
+            toast({ title: '❌ Запрос отклонен' });
+        } catch (err) {
+            toast({ title: 'Не удалось отклонить запрос', variant: 'destructive' });
+        }
+    };
+
+    const handleChangePassword = async () => {
+        if (newPassword.length < 6) {
+            toast({ title: 'Новый пароль должен быть не менее 6 символов', variant: 'destructive' });
+            return;
+        }
+        if (newPassword !== confirmPassword) {
+            toast({ title: 'Пароли не совпадают', variant: 'destructive' });
+            return;
+        }
+        setChangingPassword(true);
+        try {
+            await nexusApi.auth.changePassword({ old_password: oldPassword, new_password: newPassword });
+            toast({ title: '✅ Пароль успешно изменен!' });
+            setOldPassword('');
+            setNewPassword('');
+            setConfirmPassword('');
+        } catch (err) {
+            toast({ title: err.error || 'Не удалось изменить пароль', variant: 'destructive' });
+        }
+        setChangingPassword(false);
+    };
 
     const handleSave = async () => {
         setSaving(true);
@@ -190,6 +255,106 @@ export default function Settings() {
                         <Button onClick={handleSave} disabled={saving} className="w-full nexus-gradient border-0 text-white rounded-xl h-10 font-bold shadow-nexus">
                             {saving ? <LoadingSpinner size="sm" /> : 'Сохранить'}
                         </Button>
+                    </div>
+
+                    {user?.is_private && (
+                        <div className="nexus-card p-4 mt-4 space-y-3">
+                            <h3 className="font-bold text-sm mb-1 flex items-center justify-between">
+                                <span>Запросы на подписку</span>
+                                {pendingRequests.length > 0 && (
+                                    <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold">
+                                        {pendingRequests.length}
+                                    </span>
+                                )}
+                            </h3>
+                            {loadingRequests ? (
+                                <div className="py-4 text-center"><LoadingSpinner size="sm" /></div>
+                            ) : pendingRequests.length === 0 ? (
+                                <p className="text-xs text-muted-foreground py-2 text-center">Нет новых запросов на подписку</p>
+                            ) : (
+                                <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+                                    {pendingRequests.map(reqUser => (
+                                        <div key={reqUser.id} className="flex items-center justify-between p-2 rounded-xl bg-muted/30 border border-border/20">
+                                            <div className="flex items-center gap-2.5">
+                                                <img
+                                                    src={reqUser.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${reqUser.email}`}
+                                                    className="w-8 h-8 rounded-full object-cover"
+                                                    alt=""
+                                                />
+                                                <div>
+                                                    <p className="text-xs font-bold leading-tight">
+                                                        {reqUser.full_name || reqUser.username}
+                                                    </p>
+                                                    <p className="text-[10px] text-muted-foreground">
+                                                        @{reqUser.username}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-1.5">
+                                                <Button
+                                                    size="sm"
+                                                    onClick={() => handleAcceptRequest(reqUser.id)}
+                                                    className="h-7 px-2.5 text-[10px] font-bold rounded-lg bg-primary text-white border-0 hover:bg-primary/95"
+                                                >
+                                                    Принять
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={() => handleRejectRequest(reqUser.id)}
+                                                    className="h-7 px-2.5 text-[10px] font-bold rounded-lg border-border"
+                                                >
+                                                    Отклонить
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    <div className="nexus-card p-4 mt-4 space-y-4">
+                        <h3 className="font-bold text-sm mb-1">Смена пароля</h3>
+                        <div className="space-y-3">
+                            <div>
+                                <Label className="text-xs font-semibold text-muted-foreground mb-1 block">Текущий пароль</Label>
+                                <Input 
+                                    type="password" 
+                                    value={oldPassword} 
+                                    onChange={e => setOldPassword(e.target.value)} 
+                                    placeholder="Введите старый пароль..." 
+                                    className="rounded-xl border-border/50 h-9 text-xs" 
+                                />
+                            </div>
+                            <div>
+                                <Label className="text-xs font-semibold text-muted-foreground mb-1 block">Новый пароль</Label>
+                                <Input 
+                                    type="password" 
+                                    value={newPassword} 
+                                    onChange={e => setNewPassword(e.target.value)} 
+                                    placeholder="Минимум 6 символов..." 
+                                    className="rounded-xl border-border/50 h-9 text-xs" 
+                                />
+                            </div>
+                            <div>
+                                <Label className="text-xs font-semibold text-muted-foreground mb-1 block">Подтвердите новый пароль</Label>
+                                <Input 
+                                    type="password" 
+                                    value={confirmPassword} 
+                                    onChange={e => setConfirmPassword(e.target.value)} 
+                                    placeholder="Повторите новый пароль..." 
+                                    className="rounded-xl border-border/50 h-9 text-xs" 
+                                />
+                            </div>
+                            <Button 
+                                onClick={handleChangePassword} 
+                                disabled={changingPassword || !oldPassword || !newPassword || !confirmPassword} 
+                                className="w-full nexus-gradient border-0 text-white rounded-xl h-9 text-xs font-bold shadow-nexus"
+                            >
+                                {changingPassword ? <LoadingSpinner size="sm" /> : 'Обновить пароль'}
+                            </Button>
+                        </div>
                     </div>
 
                     <div className="nexus-card p-4 mt-4">

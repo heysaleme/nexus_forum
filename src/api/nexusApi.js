@@ -260,6 +260,12 @@ const auth = {
     async resetPassword({ resetToken, newPassword }) {
         return { success: true };
     },
+    async changePassword({ old_password, new_password }) {
+        return request('/auth/change-password', {
+            method: 'POST',
+            body: JSON.stringify({ old_password, new_password }),
+        });
+    },
 };
 
 const nexusApi = {
@@ -412,9 +418,11 @@ const nexusApi = {
                 // Check if follower_id follows following_id
                 if (filter.follower_id && filter.following_id) {
                     try {
-                        const followers = await request(`/users/${filter.following_id}/followers`);
-                        const found = (followers || []).find(f => f.id === filter.follower_id || f.follower_id === filter.follower_id);
-                        return found ? [{ id: filter.following_id, ...found }] : [];
+                        const res = await request(`/users/${filter.following_id}/follow-status`);
+                        if (res && res.status && res.status !== 'none') {
+                            return [{ id: filter.following_id, status: res.status }];
+                        }
+                        return [];
                     } catch {
                         return [];
                     }
@@ -437,6 +445,19 @@ const nexusApi = {
             async delete(id) {
                 // id is the following user ID
                 return request(`/users/${id}/unfollow`, {
+                    method: 'POST',
+                });
+            },
+            async getPendingRequests() {
+                return request('/users/follow-requests');
+            },
+            async acceptRequest(followerId) {
+                return request(`/users/follow-requests/${followerId}/accept`, {
+                    method: 'POST',
+                });
+            },
+            async rejectRequest(followerId) {
+                return request(`/users/follow-requests/${followerId}/reject`, {
                     method: 'POST',
                 });
             }

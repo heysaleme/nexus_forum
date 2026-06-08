@@ -12,6 +12,8 @@ type FollowRepository interface {
 	GetFollow(followerID, followingID uint) (*model.UserFollow, error)
 	GetFollowers(userID uint) ([]*model.UserFollow, error)
 	GetFollowing(userID uint) ([]*model.UserFollow, error)
+	GetPendingRequests(userID uint) ([]*model.UserFollow, error)
+	Update(follow *model.UserFollow) error
 }
 
 type followRepository struct {
@@ -38,12 +40,22 @@ func (r *followRepository) GetFollow(followerID, followingID uint) (*model.UserF
 
 func (r *followRepository) GetFollowers(userID uint) ([]*model.UserFollow, error) {
 	var follows []*model.UserFollow
-	err := r.db.Where("following_id = ?", userID).Find(&follows).Error
+	err := r.db.Where("following_id = ? AND status = ?", userID, "accepted").Find(&follows).Error
 	return follows, err
 }
 
 func (r *followRepository) GetFollowing(userID uint) ([]*model.UserFollow, error) {
 	var follows []*model.UserFollow
-	err := r.db.Where("follower_id = ?", userID).Find(&follows).Error
+	err := r.db.Where("follower_id = ? AND status = ?", userID, "accepted").Find(&follows).Error
 	return follows, err
+}
+
+func (r *followRepository) GetPendingRequests(userID uint) ([]*model.UserFollow, error) {
+	var follows []*model.UserFollow
+	err := r.db.Where("following_id = ? AND status = ?", userID, "pending").Find(&follows).Error
+	return follows, err
+}
+
+func (r *followRepository) Update(follow *model.UserFollow) error {
+	return r.db.Save(follow).Error
 }
