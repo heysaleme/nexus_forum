@@ -236,8 +236,28 @@ const auth = {
         setToken(token);
     },
     loginWithProvider(provider, redirectPath = '/') {
-        // Mock provider login - redirect directly
+        // Legacy stub — kept for compatibility; use googleOAuthUrl() instead
+        console.warn('loginWithProvider is deprecated. Use googleOAuthUrl() for real OAuth.');
         window.location.href = redirectPath;
+    },
+    async getOAuthConfig() {
+        // Returns { google_enabled: bool, apple_enabled: bool }
+        return request('/auth/oauth/config', { method: 'GET' });
+    },
+    async googleOAuthUrl() {
+        // Returns { url: string, state: string } — redirect user to url
+        return request('/auth/oauth/google', { method: 'GET' });
+    },
+    async googleOAuthCallback(code, state) {
+        // Exchanges authorization code for a Nexus JWT; stores token on success
+        const res = await request('/auth/oauth/google/callback', {
+            method: 'POST',
+            body: JSON.stringify({ code, state }),
+        });
+        if (res.access_token) {
+            setToken(res.access_token);
+        }
+        return res;
     },
     async updateMe(profile) {
         return request('/auth/me', {

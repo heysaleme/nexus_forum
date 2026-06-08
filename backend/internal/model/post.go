@@ -23,10 +23,11 @@ type Post struct {
 	PollOptions  string `gorm:"type:text" json:"poll_options"`
 	PollVotes    string `gorm:"type:text" json:"poll_votes"`
 
-	IsPinned  bool      `gorm:"default:false" json:"is_pinned"`
-	IsNSFW    bool      `gorm:"default:false" json:"is_nsfw"`
-	IsSpoiler bool      `gorm:"default:false" json:"is_spoiler"`
-	CreatedAt time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"created_date"`
+	IsPinned        bool      `gorm:"default:false" json:"is_pinned"`
+	IsNSFW          bool      `gorm:"default:false" json:"is_nsfw"`
+	IsSpoiler       bool      `gorm:"default:false" json:"is_spoiler"`
+	IsShadowContent bool      `gorm:"default:false" json:"-"` // hidden from non-authors when true
+	CreatedAt       time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"created_date"`
 
 	// Helper fields to join for responses
 	AuthorUsername  string `gorm:"-" json:"author_username"`

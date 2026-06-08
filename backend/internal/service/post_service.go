@@ -13,15 +13,15 @@ type PostService interface {
 	GetByID(id uint) (*model.Post, error)
 	Update(post *model.Post) error
 	Delete(userID, postID uint) error
-	List(sortSpec string, limit int) ([]*model.Post, error)
-	Filter(filter map[string]interface{}, sortSpec string, limit int) ([]*model.Post, error)
+	List(sortSpec string, limit int, viewerID uint) ([]*model.Post, error)
+	Filter(filter map[string]interface{}, sortSpec string, limit int, viewerID uint) ([]*model.Post, error)
 	Vote(userID, postID uint, value int) error
 	VotePoll(userID, postID uint, optionIndex int) error
 	SavePost(userID, postID uint) error
 	UnsavePost(userID, postID uint) error
 	GetSavedByUser(userID uint) ([]*model.SavedPost, error)
 	GetVote(userID, postID uint) (*model.Vote, error)
-	Search(query string, limit int) ([]*model.Post, error)
+	Search(query string, limit int, viewerID uint) ([]*model.Post, error)
 }
 
 type postService struct {
@@ -121,16 +121,16 @@ func (s *postService) Delete(userID, postID uint) error {
 	return s.repo.Delete(postID)
 }
 
-func (s *postService) List(sortSpec string, limit int) ([]*model.Post, error) {
-	return s.repo.List(sortSpec, limit)
+func (s *postService) List(sortSpec string, limit int, viewerID uint) ([]*model.Post, error) {
+	return s.repo.List(sortSpec, limit, viewerID)
 }
 
-func (s *postService) Filter(filter map[string]interface{}, sortSpec string, limit int) ([]*model.Post, error) {
-	return s.repo.Filter(filter, sortSpec, limit)
+func (s *postService) Filter(filter map[string]interface{}, sortSpec string, limit int, viewerID uint) ([]*model.Post, error) {
+	return s.repo.Filter(filter, sortSpec, limit, viewerID)
 }
 
-func (s *postService) Search(query string, limit int) ([]*model.Post, error) {
-	return s.repo.Search(query, limit)
+func (s *postService) Search(query string, limit int, viewerID uint) ([]*model.Post, error) {
+	return s.repo.Search(query, limit, viewerID)
 }
 
 func (s *postService) Vote(userID, postID uint, value int) error {

@@ -10,6 +10,118 @@ import (
 
 // ================= Moderation Handlers =================
 
+func (h *Handlers) ShadowBanUser(c *gin.Context) {
+	modID, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
+	targetID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	_ = c.ShouldBindJSON(&body)
+
+	if err := h.ModService.ShadowBanUser(modID, targetID, body.Reason); err != nil {
+		slog.Error("shadow ban failed", "moderator_id", modID, "target_id", targetID, "error", err)
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	slog.Info("user shadow-banned", "moderator_id", modID, "target_id", targetID)
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "user shadow-banned"})
+}
+
+func (h *Handlers) UnshadowBanUser(c *gin.Context) {
+	modID, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
+	targetID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	_ = c.ShouldBindJSON(&body)
+
+	if err := h.ModService.UnshadowBanUser(modID, targetID, body.Reason); err != nil {
+		slog.Error("unshadow ban failed", "moderator_id", modID, "target_id", targetID, "error", err)
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	slog.Info("user unshadow-banned", "moderator_id", modID, "target_id", targetID)
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "user unshadow-banned"})
+}
+
+func (h *Handlers) AddKeywordFilter(c *gin.Context) {
+	_, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
+	var body struct {
+		Pattern string `json:"pattern" binding:"required"`
+		IsRegex bool   `json:"is_regex"`
+		Action  string `json:"action" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	modID, _ := getUserID(c)
+	if err := h.ModService.AddKeywordFilter(modID, body.Pattern, body.IsRegex, body.Action); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func (h *Handlers) RemoveKeywordFilter(c *gin.Context) {
+	modID, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
+	filterID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+
+	if err := h.ModService.RemoveKeywordFilter(modID, filterID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func (h *Handlers) ListKeywordFilters(c *gin.Context) {
+	_, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
+	filters, err := h.ModService.ListKeywordFilters()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, filters)
+}
+
+
 func (h *Handlers) BanUser(c *gin.Context) {
 	modID, ok := getUserID(c)
 	if !ok {

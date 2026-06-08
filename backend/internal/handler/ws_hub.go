@@ -502,6 +502,7 @@ func (c *wsClient) readPump(chatSvc service.ChatService, senderName string) {
 
 			// Build outgoing envelope and broadcast to all room members
 			out := WSMessage{
+				ID:          msg.ID,
 				Type:        "message",
 				RoomID:      c.roomID,
 				SenderID:    c.userID,

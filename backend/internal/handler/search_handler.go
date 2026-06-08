@@ -3,8 +3,9 @@ package handler
 import (
 	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"nexus-forum-backend/internal/model"
+
+	"github.com/gin-gonic/gin"
 )
 
 // ================= Search Handlers =================
@@ -14,7 +15,12 @@ func (h *Handlers) Search(c *gin.Context) {
 	reqUserID, isAuthenticated := getOptionalUserID(c, h.AuthService)
 
 	// DB level search for posts, communities, users
-	posts, _ := h.PostService.Search(query, 30)
+	viewerID := uint(0)
+	if isAuthenticated {
+		viewerID = reqUserID
+	}
+
+	posts, _ := h.PostService.Search(query, 30, viewerID)
 	communities, _ := h.CommService.Search(query, 30)
 	users, _ := h.UserService.Search(query, 100)
 

@@ -12,6 +12,14 @@ type Config struct {
 	DBType      string // "postgres" or "sqlite"
 	DatabaseURL string // PostgreSQL URL (e.g. postgres://user:pass@host:port/dbname)
 	SqliteDB    string // SQLite filename (e.g. nexus_forum.db)
+
+	// Google OAuth (optional — features disabled when empty)
+	GoogleClientID     string
+	GoogleClientSecret string
+	FrontendURL        string // e.g. http://localhost:5173 — used to build OAuth redirect URIs
+
+	// Cloudflare Turnstile (optional — CAPTCHA skipped when empty)
+	TurnstileSecret string
 }
 
 func LoadConfig() (*Config, error) {
@@ -43,11 +51,21 @@ func LoadConfig() (*Config, error) {
 		sqliteDB = "nexus_forum.db"
 	}
 
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:5173"
+	}
+
 	return &Config{
-		Port:        port,
-		JWTSecret:   jwtSecret,
-		DBType:      dbType,
-		DatabaseURL: databaseURL,
-		SqliteDB:    sqliteDB,
+		Port:               port,
+		JWTSecret:          jwtSecret,
+		DBType:             dbType,
+		DatabaseURL:        databaseURL,
+		SqliteDB:           sqliteDB,
+		GoogleClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+		FrontendURL:        frontendURL,
+		TurnstileSecret:    os.Getenv("CLOUDFLARE_TURNSTILE_SECRET"),
 	}, nil
 }
+

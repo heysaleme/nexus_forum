@@ -12,6 +12,7 @@ type UserRepository interface {
 	GetByID(id uint) (*model.User, error)
 	GetByEmail(email string) (*model.User, error)
 	GetByUsername(username string) (*model.User, error)
+	GetByOAuth(provider, subject string) (*model.User, error)
 	Update(user *model.User) error
 	List(sortSpec string, limit int) ([]*model.User, error)
 	Search(query string, limit int) ([]*model.User, error)
@@ -44,6 +45,12 @@ func (r *userRepository) GetByEmail(email string) (*model.User, error) {
 func (r *userRepository) GetByUsername(username string) (*model.User, error) {
 	var user model.User
 	err := r.db.Where("LOWER(username) = LOWER(?)", username).First(&user).Error
+	return &user, err
+}
+
+func (r *userRepository) GetByOAuth(provider, subject string) (*model.User, error) {
+	var user model.User
+	err := r.db.Where("oauth_provider = ? AND oauth_subject = ?", provider, subject).First(&user).Error
 	return &user, err
 }
 

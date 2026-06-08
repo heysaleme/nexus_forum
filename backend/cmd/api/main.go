@@ -67,6 +67,7 @@ func main() {
 		&model.ModerationLog{},
 		&model.AnalyticsEvent{},
 		&model.Report{},
+		&model.KeywordFilter{},
 	)
 	if err != nil {
 		log.Fatalf("failed to auto migrate tables: %v", err)
@@ -92,6 +93,7 @@ func main() {
 	chatRepo := repository.NewChatRepository(db)
 	modRepo := repository.NewModerationRepository(db)
 	analyticsRepo := repository.NewAnalyticsRepository(db)
+	keywordFilterRepo := repository.NewKeywordFilterRepository(db)
 
 	authService := service.NewAuthService(userRepo, modRepo, cfg.JWTSecret)
 	userService := service.NewUserService(userRepo, followRepo, notifRepo, modRepo)
@@ -100,7 +102,7 @@ func main() {
 	commentService := service.NewCommentService(commentRepo, userRepo, postRepo, voteRepo, notifRepo, commRepo)
 	chatService := service.NewChatService(chatRepo, userRepo)
 	notifService := service.NewNotificationService(notifRepo)
-	modService := service.NewModerationService(modRepo, userRepo, postRepo, commentRepo, commRepo, notifRepo)
+	modService := service.NewModerationService(modRepo, userRepo, postRepo, commentRepo, commRepo, notifRepo, keywordFilterRepo)
 	analyticsService := service.NewAnalyticsService(analyticsRepo, userRepo, postRepo)
 
 	// WebSocket hub (starts background goroutine)
@@ -136,7 +138,14 @@ func main() {
 		}
 	}
 
-	handlers := handler.NewHandlers(authService, userService, commService, postService, commentService, chatService, notifService, modService, analyticsService, wsHub)
+	handlers := handler.NewHandlers(authService, userService, commService, postService, commentService, chatService, notifService, modService, analyticsService, wsHub, cfg.TurnstileSecret)
+
+	// OAuth handler config
+	oauthCfg := handler.OAuthConfig{
+		GoogleClientID:     cfg.GoogleClientID,
+		GoogleClientSecret: cfg.GoogleClientSecret,
+		FrontendURL:        cfg.FrontendURL,
+	}
 
 	// 7. Setup Gin Router
 	gin.SetMode(gin.ReleaseMode)
@@ -161,6 +170,11 @@ func main() {
 		api.POST("/auth/register", handlers.Register)
 		api.POST("/auth/verify-otp", handlers.VerifyOTP)
 		api.POST("/auth/login", handlers.Login)
+
+		// OAuth endpoints (public — no JWT required)
+		api.GET("/auth/oauth/config", handler.GetOAuthProviderConfig(oauthCfg))
+		api.GET("/auth/oauth/google", handler.GoogleOAuthInitiate(oauthCfg))
+		api.POST("/auth/oauth/google/callback", handler.GoogleOAuthCallback(oauthCfg, authService))
 
 		// Public User details
 		api.GET("/users", handlers.ListUsers)
@@ -248,12 +262,17 @@ func main() {
 			// Moderation actions (admin/moderator only, enforced inside service)
 			secured.POST("/moderation/users/:id/ban", handlers.BanUser)
 			secured.POST("/moderation/users/:id/unban", handlers.UnbanUser)
+			secured.POST("/moderation/users/:id/shadow-ban", handlers.ShadowBanUser)
+			secured.POST("/moderation/users/:id/unshadow-ban", handlers.UnshadowBanUser)
 			secured.POST("/moderation/posts/:id/remove", handlers.RemovePost)
 			secured.POST("/moderation/comments/:id/remove", handlers.RemoveComment)
 			secured.GET("/moderation/logs", handlers.GetModerationLogs)
 			secured.GET("/moderation/communities/:id/logs", handlers.GetCommunityModerationLogs)
 			secured.GET("/moderation/reports", handlers.GetReports)
 			secured.PUT("/moderation/reports/:id", handlers.UpdateReport)
+			secured.GET("/moderation/filters", handlers.ListKeywordFilters)
+			secured.POST("/moderation/filters", handlers.AddKeywordFilter)
+			secured.DELETE("/moderation/filters/:id", handlers.RemoveKeywordFilter)
 
 			// Analytics (admin only enforced by role check in middleware or service)
 			secured.GET("/analytics/dashboard", handlers.GetAnalyticsDashboard)

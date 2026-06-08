@@ -22,10 +22,15 @@ type User struct {
 	AllowDMs       bool      `gorm:"default:true" json:"allow_dms"`
 	IsPrivate      bool      `gorm:"default:false" json:"is_private"`
 	IsBanned       bool      `gorm:"default:false" json:"is_banned"`
+	IsShadowBanned bool      `gorm:"default:false" json:"-"`          // hidden from client — shadow ban is invisible to the banned user
+	IsSuspicious   bool      `gorm:"default:false" json:"is_suspicious"` // exposed so frontend can show Turnstile widget
+	OAuthProvider  string    `gorm:"default:''" json:"-"`             // "google" or ""
+	OAuthSubject   string    `gorm:"default:''" json:"-"`             // provider-issued user ID
 	LastSeenAt     time.Time `json:"last_seen_at"`
 	IsOnline       bool      `gorm:"-" json:"is_online"`
 	CreatedAt      time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"created_date"`
 }
+
 
 type UserFollow struct {
 	ID          uint      `gorm:"primaryKey;autoIncrement" json:"id"`

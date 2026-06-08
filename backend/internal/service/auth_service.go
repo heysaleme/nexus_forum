@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ type AuthService interface {
 	Login(email, password string) (string, *model.User, error)
 	ValidateToken(tokenStr string) (*Claims, error)
 	ChangePassword(userID uint, oldPassword, newPassword string) error
+	FindOrCreateOAuthUser(provider, sub, email, name, avatarURL string) (*model.User, string, error)
 }
 
 // In-memory pending registration store for OTP code verification (simulating Redis/DB)
@@ -164,6 +166,96 @@ func (s *authService) generateJWT(user *model.User) (string, error) {
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(s.jwtSecret))
+}
+
+// FindOrCreateOAuthUser finds an existing user by OAuth identity or creates one.
+// OAuth users never need a password — a random secure hash is stored.
+func (s *authService) FindOrCreateOAuthUser(provider, sub, email, name, avatarURL string) (*model.User, string, error) {
+	// 1. Try by (provider, subject) — most precise lookup
+	user, err := s.repo.GetByOAuth(provider, sub)
+	if err == nil {
+		token, err := s.generateJWT(user)
+		return user, token, err
+	}
+
+	// 2. Try by email — link existing account to OAuth identity
+	if email != "" {
+		user, err = s.repo.GetByEmail(email)
+		if err == nil {
+			user.OAuthProvider = provider
+			user.OAuthSubject = sub
+			if avatarURL != "" && user.AvatarURL == "" {
+				user.AvatarURL = avatarURL
+			}
+			_ = s.repo.Update(user)
+			token, err := s.generateJWT(user)
+			return user, token, err
+		}
+	}
+
+	// 3. Create new user
+	// Derive username from name or email prefix, ensure uniqueness
+	username := deriveUsername(name, email)
+	if _, err := s.repo.GetByUsername(username); err == nil {
+		// Already taken — append part of the sub to make unique
+		suffix := sub
+		if len(suffix) > 6 {
+			suffix = suffix[len(suffix)-6:]
+		}
+		username = username + "_" + suffix
+	}
+
+	// Random password hash — OAuth users never use password login
+	randomBytes := fmt.Sprintf("%d", time.Now().UnixNano())
+	hashed, _ := bcrypt.GenerateFromPassword([]byte(randomBytes), bcrypt.DefaultCost)
+
+	newUser := &model.User{
+		Username:      username,
+		Email:         email,
+		PasswordHash:  string(hashed),
+		AvatarURL:     avatarURL,
+		Role:          "user",
+		ProfileTheme:  "default",
+		Level:         1,
+		XP:            0,
+		AllowDMs:      true,
+		OAuthProvider: provider,
+		OAuthSubject:  sub,
+	}
+
+	if err := s.repo.Create(newUser); err != nil {
+		return nil, "", err
+	}
+
+	token, err := s.generateJWT(newUser)
+	return newUser, token, err
+}
+
+// deriveUsername produces a clean username from display name or email.
+func deriveUsername(name, email string) string {
+	if name != "" {
+		// Replace spaces and special chars
+		clean := strings.ToLower(name)
+		var b strings.Builder
+		for _, r := range clean {
+			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+				b.WriteRune(r)
+			} else if r == ' ' {
+				b.WriteRune('_')
+			}
+		}
+		result := b.String()
+		if result != "" && len(result) >= 2 {
+			return result
+		}
+	}
+	if email != "" {
+		parts := strings.Split(email, "@")
+		if len(parts) > 0 && parts[0] != "" {
+			return strings.ToLower(parts[0])
+		}
+	}
+	return "user"
 }
 
 func (s *authService) ChangePassword(userID uint, oldPassword, newPassword string) error {

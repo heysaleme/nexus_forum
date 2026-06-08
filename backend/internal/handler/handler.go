@@ -10,16 +10,17 @@ import (
 )
 
 type Handlers struct {
-	AuthService    service.AuthService
-	UserService    service.UserService
-	CommService    service.CommunityService
-	PostService    service.PostService
-	CommentService service.CommentService
-	ChatService    service.ChatService
-	NotifService   service.NotificationService
-	ModService     service.ModerationService
-	Analytics      service.AnalyticsService
-	WSHub          *WSHub
+	AuthService     service.AuthService
+	UserService     service.UserService
+	CommService     service.CommunityService
+	PostService     service.PostService
+	CommentService  service.CommentService
+	ChatService     service.ChatService
+	NotifService    service.NotificationService
+	ModService      service.ModerationService
+	Analytics       service.AnalyticsService
+	WSHub           *WSHub
+	TurnstileSecret string // empty = Turnstile disabled
 }
 
 func NewHandlers(
@@ -33,20 +34,23 @@ func NewHandlers(
 	mod service.ModerationService,
 	analytics service.AnalyticsService,
 	wsHub *WSHub,
+	turnstileSecret string,
 ) *Handlers {
 	return &Handlers{
-		AuthService:    auth,
-		UserService:    user,
-		CommService:    comm,
-		PostService:    post,
-		CommentService: comment,
-		ChatService:    chat,
-		NotifService:   notif,
-		ModService:     mod,
-		Analytics:      analytics,
-		WSHub:          wsHub,
+		AuthService:     auth,
+		UserService:     user,
+		CommService:     comm,
+		PostService:     post,
+		CommentService:  comment,
+		ChatService:     chat,
+		NotifService:    notif,
+		ModService:      mod,
+		Analytics:       analytics,
+		WSHub:           wsHub,
+		TurnstileSecret: turnstileSecret,
 	}
 }
+
 
 // Helper: parse uint ID from path
 func parseID(c *gin.Context, paramName string) (uint, bool) {
