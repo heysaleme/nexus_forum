@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"nexus-forum-backend/internal/dto"
+	"nexus-forum-backend/internal/middleware"
 	"nexus-forum-backend/internal/model"
 
 	"github.com/gin-gonic/gin"
@@ -18,17 +19,56 @@ func (h *Handlers) CreateComment(c *gin.Context) {
 		return
 	}
 
+	h.ModService.RecordAction(uid, "comment")
+
+	if user, err := h.UserService.GetByID(uid); err == nil && user.IsSuspicious {
+		turnstileToken := c.GetHeader("X-Turnstile-Token")
+
+		if ok, _ := middleware.VerifyTurnstileToken(
+			h.TurnstileSecret,
+			turnstileToken,
+			c.ClientIP(),
+		); !ok {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error": "CAPTCHA verification required",
+			})
+			return
+		}
+	}
+
 	var req dto.CreateCommentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
+	isShadowContent := false
+
+	if matched, action, pattern := h.ModService.CheckContent(req.Content); matched {
+
+		if action == "block" {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{
+				"error":   "Content contains prohibited terms",
+				"pattern": pattern,
+			})
+			return
+		}
+
+		if action == "shadow" {
+			isShadowContent = true
+		}
+	}
+
+	if user, err := h.UserService.GetByID(uid); err == nil && user.IsShadowBanned {
+		isShadowContent = true
+	}
+
 	comment := &model.Comment{
-		PostID:   req.PostID,
-		ParentID: req.ParentID,
-		AuthorID: uid,
-		Content:  req.Content,
+		PostID:          req.PostID,
+		ParentID:        req.ParentID,
+		AuthorID:        uid,
+		Content:         req.Content,
+		IsShadowContent: isShadowContent,
 	}
 
 	err := h.CommentService.Create(comment)
@@ -53,7 +93,12 @@ func (h *Handlers) ListComments(c *gin.Context) {
 		return
 	}
 
-	comments, err := h.CommentService.GetByPostID(uint(postID))
+	viewerID, authenticated := getOptionalUserID(c, h.AuthService)
+	if !authenticated {
+		viewerID = 0
+	}
+
+	comments, err := h.CommentService.GetByPostID(uint(postID), viewerID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

@@ -5,11 +5,12 @@ import (
 	"os"
 	"testing"
 
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
 	"nexus-forum-backend/internal/model"
 	"nexus-forum-backend/internal/repository"
 	"nexus-forum-backend/internal/service"
+
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 // setupDB creates an in-memory SQLite database with all tables migrated.
@@ -409,10 +410,11 @@ func TestModerationService_BanAndUnban(t *testing.T) {
 	savedRepo := repository.NewSavedPostRepository(db)
 	notifRepo := repository.NewNotificationRepository(db)
 	modRepo := repository.NewModerationRepository(db)
+	keywordFilterRepo := repository.NewKeywordFilterRepository(db)
 
 	authSvc := service.NewAuthService(userRepo, modRepo, "mod-secret")
 	postSvc := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, savedRepo, notifRepo)
-	modSvc := service.NewModerationService(modRepo, userRepo, postRepo, commentRepo, commRepo, notifRepo)
+	modSvc := service.NewModerationService(modRepo, userRepo, postRepo, commentRepo, commRepo, notifRepo, keywordFilterRepo)
 
 	// Create admin
 	_ = authSvc.Register("admin@example.com", "pass")
@@ -454,8 +456,22 @@ func TestModerationService_BanAndUnban(t *testing.T) {
 		t.Error("expected user to be unbanned")
 	}
 
+	// Non-mod cannot view logs, reports, or filters
+	if _, err := modSvc.GetLogs(regularUser.ID, 10); err == nil {
+		t.Error("expected error: non-mod cannot view moderation logs")
+	}
+	if _, err := modSvc.GetReports(regularUser.ID); err == nil {
+		t.Error("expected error: non-mod cannot view reports")
+	}
+	if _, err := modSvc.ListKeywordFilters(regularUser.ID); err == nil {
+		t.Error("expected error: non-mod cannot list keyword filters")
+	}
+	if err := modSvc.AddKeywordFilter(regularUser.ID, "badword", false, "block"); err == nil {
+		t.Error("expected error: non-mod cannot add keyword filters")
+	}
+
 	// Check moderation logs
-	logs, err := modSvc.GetLogs(10)
+	logs, err := modSvc.GetLogs(admin.ID, 10)
 	if err != nil {
 		t.Fatalf("GetLogs failed: %v", err)
 	}
@@ -475,6 +491,20 @@ func TestModerationService_BanAndUnban(t *testing.T) {
 	removedPost, _ := postRepo.GetByID(post.ID)
 	if removedPost.Status != "removed" {
 		t.Errorf("expected post status=removed, got %s", removedPost.Status)
+	}
+
+	commLogs, err := modSvc.GetLogsByCommunity(admin.ID, comm.ID, 10)
+	if err != nil {
+		t.Fatalf("GetLogsByCommunity failed: %v", err)
+	}
+	if len(commLogs) != 1 {
+		t.Fatalf("expected 1 community log, got %d", len(commLogs))
+	}
+	if commLogs[0].CommunityID == nil || *commLogs[0].CommunityID != comm.ID {
+		t.Errorf("expected community_id=%d on log, got %v", comm.ID, commLogs[0].CommunityID)
+	}
+	if commLogs[0].TargetType != "post" || commLogs[0].TargetID != post.ID {
+		t.Errorf("unexpected community log target: %s %d", commLogs[0].TargetType, commLogs[0].TargetID)
 	}
 }
 

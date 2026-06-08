@@ -18,12 +18,12 @@ type ModerationService interface {
 	UnshadowBanUser(moderatorID, targetUserID uint, reason string) error
 	RemovePost(moderatorID, postID uint, reason string) error
 	RemoveComment(moderatorID, commentID uint, reason string) error
-	GetLogs(limit int) ([]*model.ModerationLog, error)
-	GetLogsByCommunity(communityID uint, limit int) ([]*model.ModerationLog, error)
+	GetLogs(moderatorID uint, limit int) ([]*model.ModerationLog, error)
+	GetLogsByCommunity(moderatorID, communityID uint, limit int) ([]*model.ModerationLog, error)
 	CreateModerationLog(modID uint, modUsername, action, targetType string, targetID uint, reason string) error
 
 	CreateReport(reporterID uint, targetType string, targetID uint, reason string, description string) error
-	GetReports() ([]*model.Report, error)
+	GetReports(moderatorID uint) ([]*model.Report, error)
 	GetReportByID(id uint) (*model.Report, error)
 	ResolveReport(moderatorID uint, reportID uint, moderatorResponse string) error
 	RejectReport(moderatorID uint, reportID uint, moderatorResponse string) error
@@ -31,7 +31,7 @@ type ModerationService interface {
 	// Keyword filters
 	AddKeywordFilter(modID uint, pattern string, isRegex bool, action string) error
 	RemoveKeywordFilter(modID, filterID uint) error
-	ListKeywordFilters() ([]*model.KeywordFilter, error)
+	ListKeywordFilters(moderatorID uint) ([]*model.KeywordFilter, error)
 	// CheckContent scans text against all active keyword filters.
 	// Returns (matched bool, action string, matchedPattern string).
 	// action is "block" or "shadow". "shadow" means hide content; it does NOT shadow-ban the author.
@@ -254,12 +254,14 @@ func (s *moderationService) RemovePost(moderatorID, postID uint, reason string) 
 		modUsername = user.Username
 	}
 
+	communityID := post.CommunityID
 	return s.modRepo.CreateLog(&model.ModerationLog{
 		ActorID:           moderatorID,
 		TargetID:          postID,
 		TargetType:        "post",
 		Action:            "content_removed",
 		Details:           reason,
+		CommunityID:       &communityID,
 		ModeratorUsername: modUsername,
 	})
 }
@@ -301,21 +303,29 @@ func (s *moderationService) RemoveComment(moderatorID, commentID uint, reason st
 		modUsername = user.Username
 	}
 
+	communityID := post.CommunityID
 	return s.modRepo.CreateLog(&model.ModerationLog{
 		ActorID:           moderatorID,
 		TargetID:          commentID,
 		TargetType:        "comment",
 		Action:            "content_removed",
 		Details:           reason,
+		CommunityID:       &communityID,
 		ModeratorUsername: modUsername,
 	})
 }
 
-func (s *moderationService) GetLogs(limit int) ([]*model.ModerationLog, error) {
+func (s *moderationService) GetLogs(moderatorID uint, limit int) ([]*model.ModerationLog, error) {
+	if _, err := s.requireAdminOrMod(moderatorID); err != nil {
+		return nil, err
+	}
 	return s.modRepo.GetLogs(limit)
 }
 
-func (s *moderationService) GetLogsByCommunity(communityID uint, limit int) ([]*model.ModerationLog, error) {
+func (s *moderationService) GetLogsByCommunity(moderatorID, communityID uint, limit int) ([]*model.ModerationLog, error) {
+	if _, err := s.requireAdminOrMod(moderatorID); err != nil {
+		return nil, err
+	}
 	return s.modRepo.GetLogsByCommunity(communityID, limit)
 }
 
@@ -358,6 +368,9 @@ func (s *moderationService) reloadFilters() {
 }
 
 func (s *moderationService) AddKeywordFilter(modID uint, pattern string, isRegex bool, action string) error {
+	if _, err := s.requireAdminOrMod(modID); err != nil {
+		return err
+	}
 	if action != "block" && action != "shadow" {
 		return errors.New("action must be 'block' or 'shadow'")
 	}
@@ -380,6 +393,9 @@ func (s *moderationService) AddKeywordFilter(modID uint, pattern string, isRegex
 }
 
 func (s *moderationService) RemoveKeywordFilter(modID, filterID uint) error {
+	if _, err := s.requireAdminOrMod(modID); err != nil {
+		return err
+	}
 	if err := s.filterRepo.Delete(filterID); err != nil {
 		return err
 	}
@@ -387,7 +403,10 @@ func (s *moderationService) RemoveKeywordFilter(modID, filterID uint) error {
 	return nil
 }
 
-func (s *moderationService) ListKeywordFilters() ([]*model.KeywordFilter, error) {
+func (s *moderationService) ListKeywordFilters(moderatorID uint) ([]*model.KeywordFilter, error) {
+	if _, err := s.requireAdminOrMod(moderatorID); err != nil {
+		return nil, err
+	}
 	return s.filterRepo.List()
 }
 
@@ -486,7 +505,10 @@ func (s *moderationService) CreateReport(reporterID uint, targetType string, tar
 	return s.modRepo.CreateReport(report)
 }
 
-func (s *moderationService) GetReports() ([]*model.Report, error) {
+func (s *moderationService) GetReports(moderatorID uint) ([]*model.Report, error) {
+	if _, err := s.requireAdminOrMod(moderatorID); err != nil {
+		return nil, err
+	}
 	return s.modRepo.GetReports()
 }
 
@@ -518,6 +540,16 @@ func (s *moderationService) ResolveReport(moderatorID uint, reportID uint, moder
 		if err == nil && post.Status != "removed" {
 			post.Status = "removed"
 			_ = s.postRepo.Update(post)
+			communityID := post.CommunityID
+			_ = s.modRepo.CreateLog(&model.ModerationLog{
+				ActorID:           moderatorID,
+				TargetID:          post.ID,
+				TargetType:        "post",
+				Action:            "content_removed",
+				Details:           "via report: " + moderatorResponse,
+				CommunityID:       &communityID,
+				ModeratorUsername: mod.Username,
+			})
 			// Notify author
 			notif := &model.Notification{
 				UserID:      post.AuthorID,
@@ -533,6 +565,18 @@ func (s *moderationService) ResolveReport(moderatorID uint, reportID uint, moder
 			comment.IsDeleted = true
 			comment.Content = "[удалено модератором]"
 			_ = s.commentRepo.Update(comment)
+			if post, postErr := s.postRepo.GetByID(comment.PostID); postErr == nil {
+				communityID := post.CommunityID
+				_ = s.modRepo.CreateLog(&model.ModerationLog{
+					ActorID:           moderatorID,
+					TargetID:          comment.ID,
+					TargetType:        "comment",
+					Action:            "content_removed",
+					Details:           "via report: " + moderatorResponse,
+					CommunityID:       &communityID,
+					ModeratorUsername: mod.Username,
+				})
+			}
 			// Notify author
 			notif := &model.Notification{
 				UserID:      comment.AuthorID,

@@ -11,7 +11,7 @@ type CommentService interface {
 	Create(comment *model.Comment) error
 	Update(userID uint, commentID uint, content string) (*model.Comment, error)
 	Delete(userID, commentID uint) error
-	GetByPostID(postID uint) ([]*model.Comment, error)
+	GetByPostID(postID uint, viewerID uint) ([]*model.Comment, error)
 	Vote(userID, commentID uint, value int) error
 	GetVote(userID, commentID uint) (*model.Vote, error)
 }
@@ -155,8 +155,8 @@ func (s *commentService) Delete(userID, commentID uint) error {
 	return s.repo.Update(comment)
 }
 
-func (s *commentService) GetByPostID(postID uint) ([]*model.Comment, error) {
-	return s.repo.GetByPostID(postID)
+func (s *commentService) GetByPostID(postID uint, viewerID uint) ([]*model.Comment, error) {
+	return s.repo.GetByPostID(postID, viewerID)
 }
 
 func (s *commentService) Vote(userID, commentID uint, value int) error {

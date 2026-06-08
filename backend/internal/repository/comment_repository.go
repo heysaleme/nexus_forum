@@ -11,7 +11,7 @@ type CommentRepository interface {
 	GetByID(id uint) (*model.Comment, error)
 	Update(comment *model.Comment) error
 	Delete(id uint) error
-	GetByPostID(postID uint) ([]*model.Comment, error)
+	GetByPostID(postID uint, viewerID uint) ([]*model.Comment, error)
 }
 
 type commentRepository struct {
@@ -44,12 +44,47 @@ func (r *commentRepository) Delete(id uint) error {
 	return r.db.Delete(&model.Comment{}, id).Error
 }
 
-func (r *commentRepository) GetByPostID(postID uint) ([]*model.Comment, error) {
+func (r *commentRepository) GetByPostID(postID uint, viewerID uint) ([]*model.Comment, error) {
 	var comments []*model.Comment
-	err := r.db.Where("post_id = ?", postID).Order("created_at ASC").Find(&comments).Error
+
+	q := r.db.Where("post_id = ?", postID)
+
+	shadowBannedSubquery := r.db.
+		Model(&model.User{}).
+		Select("id").
+		Where("is_shadow_banned = ?", true)
+
+	if viewerID > 0 {
+		q = q.Where(
+			"(author_id NOT IN (?) OR author_id = ?)",
+			shadowBannedSubquery,
+			viewerID,
+		)
+
+		q = q.Where(
+			"(is_shadow_content = ? OR author_id = ?)",
+			false,
+			viewerID,
+		)
+	} else {
+		q = q.Where(
+			"author_id NOT IN (?)",
+			shadowBannedSubquery,
+		)
+
+		q = q.Where(
+			"is_shadow_content = ?",
+			false,
+		)
+	}
+
+	err := q.Order("created_at ASC").
+		Find(&comments).Error
+
 	if err == nil {
 		r.hydrateCommentFields(comments)
 	}
+
 	return comments, err
 }
 

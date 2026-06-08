@@ -80,6 +80,10 @@ func (h *Handlers) AddKeywordFilter(c *gin.Context) {
 
 	modID, _ := getUserID(c)
 	if err := h.ModService.AddKeywordFilter(modID, body.Pattern, body.IsRegex, body.Action); err != nil {
+		if err.Error() == "insufficient permissions: admin or moderator role required" {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -99,6 +103,10 @@ func (h *Handlers) RemoveKeywordFilter(c *gin.Context) {
 	}
 
 	if err := h.ModService.RemoveKeywordFilter(modID, filterID); err != nil {
+		if err.Error() == "insufficient permissions: admin or moderator role required" {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -107,14 +115,14 @@ func (h *Handlers) RemoveKeywordFilter(c *gin.Context) {
 }
 
 func (h *Handlers) ListKeywordFilters(c *gin.Context) {
-	_, ok := getUserID(c)
+	modID, ok := getUserID(c)
 	if !ok {
 		return
 	}
 
-	filters, err := h.ModService.ListKeywordFilters()
+	filters, err := h.ModService.ListKeywordFilters(modID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -227,7 +235,7 @@ func (h *Handlers) RemoveComment(c *gin.Context) {
 }
 
 func (h *Handlers) GetModerationLogs(c *gin.Context) {
-	_, ok := getUserID(c)
+	modID, ok := getUserID(c)
 	if !ok {
 		return
 	}
@@ -235,9 +243,9 @@ func (h *Handlers) GetModerationLogs(c *gin.Context) {
 	limitStr := c.DefaultQuery("limit", "50")
 	limit, _ := strconv.Atoi(limitStr)
 
-	logs, err := h.ModService.GetLogs(limit)
+	logs, err := h.ModService.GetLogs(modID, limit)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -245,7 +253,7 @@ func (h *Handlers) GetModerationLogs(c *gin.Context) {
 }
 
 func (h *Handlers) GetCommunityModerationLogs(c *gin.Context) {
-	_, ok := getUserID(c)
+	modID, ok := getUserID(c)
 	if !ok {
 		return
 	}
@@ -258,9 +266,9 @@ func (h *Handlers) GetCommunityModerationLogs(c *gin.Context) {
 	limitStr := c.DefaultQuery("limit", "50")
 	limit, _ := strconv.Atoi(limitStr)
 
-	logs, err := h.ModService.GetLogsByCommunity(commID, limit)
+	logs, err := h.ModService.GetLogsByCommunity(modID, commID, limit)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -268,14 +276,14 @@ func (h *Handlers) GetCommunityModerationLogs(c *gin.Context) {
 }
 
 func (h *Handlers) GetReports(c *gin.Context) {
-	_, ok := getUserID(c)
+	modID, ok := getUserID(c)
 	if !ok {
 		return
 	}
 
-	reports, err := h.ModService.GetReports()
+	reports, err := h.ModService.GetReports(modID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
 
