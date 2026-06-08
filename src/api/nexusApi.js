@@ -1,4 +1,4 @@
-const BASE_URL = 'http://localhost:8080/api';
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
 const SESSION_KEY = 'nexus_forum_session_token';
 
 const listeners = new Map();
@@ -269,6 +269,7 @@ const auth = {
 };
 
 const nexusApi = {
+    BASE_URL,
     auth,
     Search: {
         async query(q) {
@@ -519,16 +520,28 @@ const nexusApi = {
                 // ChatRoom message creation
                 const record = await request(`/chats/${payload.chat_room_id}/messages`, {
                     method: 'POST',
-                    body: JSON.stringify({ content: payload.content }),
+                    body: JSON.stringify({
+                        content: payload.content,
+                        attachment_url: payload.attachment_url,
+                        attachment_type: payload.attachment_type,
+                    }),
                 });
                 notifySubscribers('Message', { type: 'create', data: record });
                 return record;
             },
-            async delete(id) {
-                const res = await request(`/messages/${id}`, {
+            async update(id, content) {
+                const record = await request(`/messages/${id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ content }),
+                });
+                notifySubscribers('Message', { type: 'update', data: record });
+                return record;
+            },
+            async delete(id, deleteType = 'me') {
+                const res = await request(`/messages/${id}?type=${deleteType}`, {
                     method: 'DELETE',
                 });
-                notifySubscribers('Message', { type: 'delete', data: { id } });
+                notifySubscribers('Message', { type: 'delete', data: { id, deleteType } });
                 return res;
             },
         },
