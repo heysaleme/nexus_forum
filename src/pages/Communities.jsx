@@ -62,7 +62,7 @@ export default function Communities() {
         }
         if (memberships.has(community.id)) {
             const members = await nexusApi.entities.CommunityMember.filter({ user_id: user.id, community_id: community.id });
-            if (members[0]) await nexusApi.entities.CommunityMember.delete(members[0].id);
+            if (members[0]) await nexusApi.entities.CommunityMember.delete(community.id);
             setMemberships(prev => { const s = new Set(prev); s.delete(community.id); return s; });
             toast({ title: `Вы покинули ${community.name}` });
         } else {

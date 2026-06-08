@@ -47,7 +47,7 @@ export default function CommunityPage() {
         if (!user) { toast({ title: 'Войдите, чтобы вступить', variant: 'destructive' }); return; }
         if (isJoined) {
             const myMember = members.find(m => m.user_id === user.id);
-            if (myMember) await nexusApi.entities.CommunityMember.delete(myMember.id);
+            if (myMember) await nexusApi.entities.CommunityMember.delete(id);
             setIsJoined(false);
             setMemberRole(null);
             toast({ title: `Вы покинули ${community.name}` });

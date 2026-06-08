@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"strings"
 	"nexus-forum-backend/internal/model"
 
 	"gorm.io/gorm"
@@ -13,6 +14,7 @@ type PostRepository interface {
 	Delete(id uint) error
 	List(sortSpec string, limit int) ([]*model.Post, error)
 	Filter(filter map[string]interface{}, sortSpec string, limit int) ([]*model.Post, error)
+	Search(query string, limit int) ([]*model.Post, error)
 }
 
 type postRepository struct {
@@ -61,6 +63,27 @@ func (r *postRepository) List(sortSpec string, limit int) ([]*model.Post, error)
 func (r *postRepository) Filter(filter map[string]interface{}, sortSpec string, limit int) ([]*model.Post, error) {
 	var posts []*model.Post
 	q := r.db.Where(filter).Order(parseSort(sortSpec))
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	err := q.Find(&posts).Error
+	if err == nil {
+		r.hydratePostFields(posts)
+	}
+	return posts, err
+}
+
+func (r *postRepository) Search(query string, limit int) ([]*model.Post, error) {
+	var posts []*model.Post
+	dialect := r.db.Dialector.Name()
+	var q *gorm.DB
+	if dialect == "postgres" {
+		q = r.db.Where("status = ? AND to_tsvector('simple', title || ' ' || content) @@ plainto_tsquery('simple', ?)", "published", query)
+	} else {
+		likePattern := "%" + strings.ToLower(query) + "%"
+		q = r.db.Where("status = ? AND (LOWER(title) LIKE ? OR LOWER(content) LIKE ?)", "published", likePattern, likePattern)
+	}
+
 	if limit > 0 {
 		q = q.Limit(limit)
 	}
