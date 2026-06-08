@@ -20,7 +20,6 @@ export default function AdminPanel() {
     const [users, setUsers] = useState([]);
     const [communities, setCommunities] = useState([]);
     const [reports, setReports] = useState([]);
-    const [posts, setPosts] = useState([]);
     const [dashboard, setDashboard] = useState(null);
     const [loading, setLoading] = useState(true);
     const [userSearch, setUserSearch] = useState('');
@@ -33,17 +32,15 @@ export default function AdminPanel() {
     const loadData = async () => {
         setLoading(true);
         try {
-            const [usersData, communitiesData, reportsData, postsData, dashboardData] = await Promise.all([
+            const [usersData, communitiesData, reportsData, dashboardData] = await Promise.all([
                 nexusApi.entities.User.list('-created_date', 50),
                 nexusApi.entities.Community.list('-member_count', 30),
                 nexusApi.entities.Report.list(),
-                nexusApi.entities.Post.list('-created_date', 10),
-                nexusApi.analytics.getDashboard().catch(() => null),
+                nexusApi.analytics.getDashboard(),
             ]);
             setUsers(usersData);
             setCommunities(communitiesData);
             setReports(Array.isArray(reportsData) ? reportsData : []);
-            setPosts(postsData);
             setDashboard(dashboardData);
         } catch (err) {
             toast({ title: err.message || 'Не удалось загрузить данные панели', variant: 'destructive' });
@@ -87,15 +84,22 @@ export default function AdminPanel() {
         }
     };
 
+    const reasonLabels = {
+        spam: 'Спам',
+        harassment: 'Харассмент',
+        nsfw: 'NSFW',
+        other: 'Другое',
+    };
+
     const stats = {
-        totalUsers: dashboard?.total_users ?? users.length,
+        totalUsers: dashboard?.total_users ?? 0,
         dau: dashboard?.dau ?? 0,
         mau: dashboard?.mau ?? 0,
-        bannedUsers: users.filter(u => u.is_banned).length,
-        totalCommunities: communities.length,
-        pendingReports: reports.filter(r => r.status === 'pending').length,
-        totalPosts: posts.length,
-        totalAdmins: users.filter(u => u.role === 'admin').length,
+        bannedUsers: dashboard?.banned_users ?? 0,
+        totalCommunities: dashboard?.total_communities ?? 0,
+        pendingReports: dashboard?.pending_reports ?? 0,
+        totalPosts: dashboard?.total_posts ?? 0,
+        totalAdmins: dashboard?.total_admins ?? 0,
     };
 
     const chartData = (dashboard?.user_growth_30d || []).map((row) => ({
@@ -103,13 +107,17 @@ export default function AdminPanel() {
         users: row.count || 0,
     }));
 
-    const pieData = [
-        { name: 'Спам', value: reports.filter(r => r.reason === 'spam').length },
-        { name: 'Харассмент', value: reports.filter(r => r.reason === 'harassment').length },
-        { name: 'NSFW', value: reports.filter(r => r.reason === 'nsfw').length },
-        { name: 'Другое', value: reports.filter(r => r.reason === 'other').length },
-    ].filter((item) => item.value > 0);
-    const COLORS = ['#6A5AE0', '#8B7CFF', '#5EDFFF', '#EF4444'];
+    const activity7dData = (dashboard?.activity_7d || []).map((row) => ({
+        name: row.day ? String(row.day).slice(5) : '',
+        users: row.users || 0,
+        posts: row.posts || 0,
+    }));
+
+    const pieData = (dashboard?.report_reasons || []).map((row) => ({
+        name: reasonLabels[row.reason] || row.reason || 'Неизвестно',
+        value: row.count || 0,
+    })).filter((item) => item.value > 0);
+    const COLORS = ['#6A5AE0', '#8B7CFF', '#5EDFFF', '#EF4444', '#F59E0B', '#10B981'];
 
     const filteredUsers = users.filter(u =>
         !userSearch || u.full_name?.toLowerCase().includes(userSearch.toLowerCase()) || u.email?.toLowerCase().includes(userSearch.toLowerCase())
@@ -177,6 +185,61 @@ export default function AdminPanel() {
                 <TabsContent value="stats">
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                         <div className="nexus-card p-4 lg:col-span-2">
+                            <h3 className="font-bold text-sm mb-3">Активность за неделю</h3>
+                            {activity7dData.length === 0 ? (
+                                <p className="text-xs text-muted-foreground py-16 text-center">Нет данных об активности за последние 7 дней</p>
+                            ) : (
+                            <ResponsiveContainer width="100%" height={200}>
+                                <AreaChart data={activity7dData}>
+                                    <defs>
+                                        <linearGradient id="colorWeekUsers" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#6A5AE0" stopOpacity={0.3} />
+                                            <stop offset="95%" stopColor="#6A5AE0" stopOpacity={0} />
+                                        </linearGradient>
+                                        <linearGradient id="colorWeekPosts" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#5EDFFF" stopOpacity={0.3} />
+                                            <stop offset="95%" stopColor="#5EDFFF" stopOpacity={0} />
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                                    <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                                    <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+                                    <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '12px', fontSize: '12px' }} />
+                                    <Area type="monotone" dataKey="users" stroke="#6A5AE0" strokeWidth={2} fill="url(#colorWeekUsers)" name="Новые пользователи" />
+                                    <Area type="monotone" dataKey="posts" stroke="#5EDFFF" strokeWidth={2} fill="url(#colorWeekPosts)" name="Новые посты" />
+                                </AreaChart>
+                            </ResponsiveContainer>
+                            )}
+                        </div>
+
+                        <div className="nexus-card p-4">
+                            <h3 className="font-bold text-sm mb-3">Причины жалоб</h3>
+                            {pieData.length === 0 ? (
+                                <p className="text-xs text-muted-foreground py-16 text-center">Жалоб пока нет</p>
+                            ) : (
+                            <>
+                            <ResponsiveContainer width="100%" height={180}>
+                                <PieChart>
+                                    <Pie data={pieData} cx="50%" cy="50%" innerRadius={50} outerRadius={70} dataKey="value">
+                                        {pieData.map((entry, index) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}
+                                    </Pie>
+                                    <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '12px', fontSize: '12px' }} />
+                                </PieChart>
+                            </ResponsiveContainer>
+                            <div className="space-y-1 mt-2">
+                                {pieData.map((item, i) => (
+                                    <div key={item.name} className="flex items-center gap-2 text-xs">
+                                        <div className="w-2 h-2 rounded-full" style={{ background: COLORS[i % COLORS.length] }} />
+                                        <span className="text-muted-foreground flex-1">{item.name}</span>
+                                        <span className="font-bold">{item.value}</span>
+                                    </div>
+                                ))}
+                            </div>
+                            </>
+                            )}
+                        </div>
+
+                        <div className="nexus-card p-4 lg:col-span-3">
                             <h3 className="font-bold text-sm mb-3">Рост пользователей (30 дней)</h3>
                             {chartData.length === 0 ? (
                                 <p className="text-xs text-muted-foreground py-16 text-center">Нет данных о регистрациях за последние 30 дней</p>
@@ -200,33 +263,6 @@ export default function AdminPanel() {
                                     <Area type="monotone" dataKey="users" stroke="#6A5AE0" strokeWidth={2} fill="url(#colorUsers)" name="Регистрации" />
                                 </AreaChart>
                             </ResponsiveContainer>
-                            )}
-                        </div>
-
-                        <div className="nexus-card p-4">
-                            <h3 className="font-bold text-sm mb-3">Причины жалоб</h3>
-                            {pieData.length === 0 ? (
-                                <p className="text-xs text-muted-foreground py-16 text-center">Жалоб пока нет</p>
-                            ) : (
-                            <>
-                            <ResponsiveContainer width="100%" height={180}>
-                                <PieChart>
-                                    <Pie data={pieData} cx="50%" cy="50%" innerRadius={50} outerRadius={70} dataKey="value">
-                                        {pieData.map((entry, index) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}
-                                    </Pie>
-                                    <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '12px', fontSize: '12px' }} />
-                                </PieChart>
-                            </ResponsiveContainer>
-                            <div className="space-y-1 mt-2">
-                                {pieData.map((item, i) => (
-                                    <div key={item.name} className="flex items-center gap-2 text-xs">
-                                        <div className="w-2 h-2 rounded-full" style={{ background: COLORS[i] }} />
-                                        <span className="text-muted-foreground flex-1">{item.name}</span>
-                                        <span className="font-bold">{item.value}</span>
-                                    </div>
-                                ))}
-                            </div>
-                            </>
                             )}
                         </div>
                     </div>

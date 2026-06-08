@@ -42,26 +42,37 @@ func (s *analyticsService) Track(userID *uint, eventType, entityType string, ent
 }
 
 func (s *analyticsService) GetDashboard() (map[string]interface{}, error) {
-	totalUsers, _ := s.repo.CountEvents("register", 0, 0)
+	totalRegistrations, _ := s.repo.CountEvents("register", 0, 0)
 	totalLogins, _ := s.repo.CountEvents("login", 0, 0)
 	totalPostViews, _ := s.repo.CountEvents("page_view", 0, 0)
 	topPosts, _ := s.repo.GetTopPosts(10)
 	userGrowth, _ := s.repo.GetUserGrowth(30)
+	activity7d, _ := s.repo.GetActivitySeries(7)
+	reportReasons, _ := s.repo.GetReportReasonBreakdown()
 	dau, _ := s.repo.CountActiveUsers(time.Now().Add(-24 * time.Hour))
 	mau, _ := s.repo.CountActiveUsers(time.Now().Add(-30 * 24 * time.Hour))
-
-	// Count total users directly from user repo via List
-	allUsers, _ := s.userRepo.List("", 10000)
-	totalUserCount := int64(len(allUsers))
+	totalUsers, _ := s.repo.CountTotalUsers()
+	bannedUsers, _ := s.repo.CountBannedUsers()
+	adminUsers, _ := s.repo.CountAdminUsers()
+	totalCommunities, _ := s.repo.CountCommunities()
+	totalPosts, _ := s.repo.CountPublishedPosts()
+	pendingReports, _ := s.repo.CountPendingReports()
 
 	return map[string]interface{}{
-		"total_users":                 totalUserCount,
-		"total_registrations_tracked": totalUsers,
+		"total_users":                 totalUsers,
+		"banned_users":                bannedUsers,
+		"total_admins":                adminUsers,
+		"total_communities":           totalCommunities,
+		"total_posts":                 totalPosts,
+		"pending_reports":             pendingReports,
+		"total_registrations_tracked": totalRegistrations,
 		"total_logins_tracked":        totalLogins,
 		"total_page_views":            totalPostViews,
 		"dau":                         dau,
 		"mau":                         mau,
 		"top_posts":                   topPosts,
 		"user_growth_30d":             userGrowth,
+		"activity_7d":                 activity7d,
+		"report_reasons":            reportReasons,
 	}, nil
 }
