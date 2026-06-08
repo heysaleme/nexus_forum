@@ -42,10 +42,7 @@ export default function Register() {
         setError("");
         setLoading(true);
         try {
-            const result = await nexusApi.auth.verifyOtp({ email, otpCode });
-            if (result?.access_token) {
-                nexusApi.auth.setToken(result.access_token);
-            }
+            await nexusApi.auth.verifyOtp({ email, otpCode });
             window.location.href = "/";
         } catch (err) {
             setError(err.message || "Invalid verification code");

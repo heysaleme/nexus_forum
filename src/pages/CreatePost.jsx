@@ -12,6 +12,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/components/ui/use-toast';
 import { Type, Image, Link as LinkIcon, BarChart2, BookOpen, X, Plus, Upload, ArrowLeft, Video } from 'lucide-react';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
+import { validateFileSize, UPLOAD_LIMITS_MB, limitLabelForCategory } from '@/lib/validateFileSize';
 
 const POST_TYPES = [
     { id: 'text', label: 'Текст', icon: Type },
@@ -77,9 +78,17 @@ export default function CreatePost() {
         const file = e.target.files[0];
         if (!file) return;
         setUploading(true);
-        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'posts/images' });
-        setMediaUrls(prev => [...prev, file_url]);
-        setUploading(false);
+        try {
+            validateFileSize(file, UPLOAD_LIMITS_MB['posts/images']);
+            const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'posts/images' });
+            setMediaUrls(prev => [...prev, file_url]);
+            toast({ title: '✅ Изображение загружено' });
+        } catch (err) {
+            toast({ title: err.message || 'Не удалось загрузить изображение', variant: 'destructive' });
+        } finally {
+            setUploading(false);
+            e.target.value = '';
+        }
     };
 
     const handleVideoUpload = async (e) => {
@@ -89,18 +98,18 @@ export default function CreatePost() {
             toast({ title: 'Выберите видеофайл', variant: 'destructive' });
             return;
         }
-        if (file.size > 15 * 1024 * 1024) {
-            toast({ title: 'Видео должно быть меньше 15 МБ', variant: 'destructive' });
-            return;
-        }
         setUploading(true);
         try {
+            validateFileSize(file, UPLOAD_LIMITS_MB['posts/videos']);
             const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'posts/videos' });
             setMediaUrls([file_url]);
-        } catch {
-            toast({ title: 'Не удалось загрузить видео', variant: 'destructive' });
+            toast({ title: '✅ Видео загружено' });
+        } catch (err) {
+            toast({ title: err.message || 'Не удалось загрузить видео', variant: 'destructive' });
+        } finally {
+            setUploading(false);
+            e.target.value = '';
         }
-        setUploading(false);
     };
 
     const handleSubmit = async (statusOverride) => {
@@ -239,7 +248,9 @@ export default function CreatePost() {
                 ) : type === 'video' ? (
                     <div className="space-y-3">
                         <div>
-                            <Label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Видео (до 15 МБ)</Label>
+                            <Label className="text-xs font-semibold text-muted-foreground mb-1.5 block">
+                                Видео ({limitLabelForCategory('posts/videos')})
+                            </Label>
                             <label className="flex flex-col items-center justify-center border-2 border-dashed border-border/50 rounded-xl p-8 cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-all">
                                 {uploading ? <LoadingSpinner size="sm" /> : (
                                     <>
@@ -268,7 +279,9 @@ export default function CreatePost() {
                 ) : type === 'image' ? (
                     <div className="space-y-3">
                         <div>
-                            <Label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Изображения</Label>
+                            <Label className="text-xs font-semibold text-muted-foreground mb-1.5 block">
+                                Изображения ({limitLabelForCategory('posts/images')})
+                            </Label>
                             <label className="flex flex-col items-center justify-center border-2 border-dashed border-border/50 rounded-xl p-8 cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-all">
                                 {uploading ? <LoadingSpinner size="sm" /> : (
                                     <>

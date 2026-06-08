@@ -12,6 +12,8 @@ func main() {
 	routes := []string{
 		"/health",
 		"/api/posts",
+		"/api/posts?sort=hot",
+		"/api/posts?sort=new",
 		"/api/posts/1",
 		"/api/search?q=test",
 		"/api/comments?post_id=1",

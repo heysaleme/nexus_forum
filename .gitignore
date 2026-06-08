@@ -31,3 +31,4 @@ dist-ssr
 .vite
 backend/uploads/
 backend/nexus_forum.db
+backups/

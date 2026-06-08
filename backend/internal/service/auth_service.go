@@ -19,6 +19,7 @@ type AuthService interface {
 	VerifyOTP(email, otpCode string) (accessToken, refreshToken string, user *model.User, err error)
 	Login(email, password string) (accessToken, refreshToken string, user *model.User, err error)
 	RefreshAccessToken(refreshToken string) (accessToken, newRefreshToken string, err error)
+	Logout(refreshToken string) error
 	ValidateToken(tokenStr string) (*Claims, error)
 	ChangePassword(userID uint, oldPassword, newPassword string) error
 	RequestPasswordReset(email string) (string, error)
@@ -141,6 +142,13 @@ func (s *authService) Login(email, password string) (string, string, *model.User
 		})
 	}
 	return access, refresh, user, err
+}
+
+func (s *authService) Logout(refreshToken string) error {
+	if refreshToken == "" {
+		return nil
+	}
+	return s.refreshRepo.RevokeByToken(refreshToken)
 }
 
 func (s *authService) RefreshAccessToken(refreshToken string) (string, string, error) {

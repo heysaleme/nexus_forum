@@ -12,6 +12,7 @@ import { Settings as SettingsIcon, User, Lock, Palette, Upload, LogOut } from 'l
 import { useToast } from '@/components/ui/use-toast';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import { useNavigate } from 'react-router-dom';
+import { validateFileSize, UPLOAD_LIMITS_MB, limitLabelForCategory } from '@/lib/validateFileSize';
 
 const THEMES = [
     { id: 'default', label: 'По умолчанию', gradient: 'from-primary/30 to-accent/30' },
@@ -132,18 +133,34 @@ export default function Settings() {
         const file = e.target.files[0];
         if (!file) return;
         setUploading(true);
-        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'profile/avatars' });
-        setProfile(prev => ({ ...prev, avatar_url: file_url }));
-        setUploading(false);
+        try {
+            validateFileSize(file, UPLOAD_LIMITS_MB['profile/avatars']);
+            const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'profile/avatars' });
+            setProfile(prev => ({ ...prev, avatar_url: file_url }));
+            toast({ title: '✅ Аватар загружен' });
+        } catch (err) {
+            toast({ title: err.message || 'Не удалось загрузить аватар', variant: 'destructive' });
+        } finally {
+            setUploading(false);
+            e.target.value = '';
+        }
     };
 
     const handleBannerUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
         setUploading(true);
-        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'profile/banners' });
-        setProfile(prev => ({ ...prev, banner_url: file_url }));
-        setUploading(false);
+        try {
+            validateFileSize(file, UPLOAD_LIMITS_MB['profile/banners']);
+            const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'profile/banners' });
+            setProfile(prev => ({ ...prev, banner_url: file_url }));
+            toast({ title: '✅ Баннер загружен' });
+        } catch (err) {
+            toast({ title: err.message || 'Не удалось загрузить баннер', variant: 'destructive' });
+        } finally {
+            setUploading(false);
+            e.target.value = '';
+        }
     };
 
     const handleLogout = () => {
@@ -188,7 +205,9 @@ export default function Settings() {
                                     </div>
                                     <input type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
                                 </label>
-                                <p className="text-xs text-muted-foreground pt-6">Нажми для изменения аватара и баннера</p>
+                                <p className="text-xs text-muted-foreground pt-6">
+                                    Аватар {limitLabelForCategory('profile/avatars')}, баннер {limitLabelForCategory('profile/banners')}
+                                </p>
                             </div>
                         </div>
 
@@ -319,37 +338,37 @@ export default function Settings() {
                         <div className="space-y-3">
                             <div>
                                 <Label className="text-xs font-semibold text-muted-foreground mb-1 block">Текущий пароль</Label>
-                                <Input 
-                                    type="password" 
-                                    value={oldPassword} 
-                                    onChange={e => setOldPassword(e.target.value)} 
-                                    placeholder="Введите старый пароль..." 
-                                    className="rounded-xl border-border/50 h-9 text-xs" 
+                                <Input
+                                    type="password"
+                                    value={oldPassword}
+                                    onChange={e => setOldPassword(e.target.value)}
+                                    placeholder="Введите старый пароль..."
+                                    className="rounded-xl border-border/50 h-9 text-xs"
                                 />
                             </div>
                             <div>
                                 <Label className="text-xs font-semibold text-muted-foreground mb-1 block">Новый пароль</Label>
-                                <Input 
-                                    type="password" 
-                                    value={newPassword} 
-                                    onChange={e => setNewPassword(e.target.value)} 
-                                    placeholder="Минимум 6 символов..." 
-                                    className="rounded-xl border-border/50 h-9 text-xs" 
+                                <Input
+                                    type="password"
+                                    value={newPassword}
+                                    onChange={e => setNewPassword(e.target.value)}
+                                    placeholder="Минимум 6 символов..."
+                                    className="rounded-xl border-border/50 h-9 text-xs"
                                 />
                             </div>
                             <div>
                                 <Label className="text-xs font-semibold text-muted-foreground mb-1 block">Подтвердите новый пароль</Label>
-                                <Input 
-                                    type="password" 
-                                    value={confirmPassword} 
-                                    onChange={e => setConfirmPassword(e.target.value)} 
-                                    placeholder="Повторите новый пароль..." 
-                                    className="rounded-xl border-border/50 h-9 text-xs" 
+                                <Input
+                                    type="password"
+                                    value={confirmPassword}
+                                    onChange={e => setConfirmPassword(e.target.value)}
+                                    placeholder="Повторите новый пароль..."
+                                    className="rounded-xl border-border/50 h-9 text-xs"
                                 />
                             </div>
-                            <Button 
-                                onClick={handleChangePassword} 
-                                disabled={changingPassword || !oldPassword || !newPassword || !confirmPassword} 
+                            <Button
+                                onClick={handleChangePassword}
+                                disabled={changingPassword || !oldPassword || !newPassword || !confirmPassword}
                                 className="w-full nexus-gradient border-0 text-white rounded-xl h-9 text-xs font-bold shadow-nexus"
                             >
                                 {changingPassword ? <LoadingSpinner size="sm" /> : 'Обновить пароль'}

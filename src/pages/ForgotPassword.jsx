@@ -11,17 +11,22 @@ export default function ForgotPassword() {
     const [email, setEmail] = useState("");
     const [loading, setLoading] = useState(false);
     const [sent, setSent] = useState(false);
+    const [devResetLink, setDevResetLink] = useState('');
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
+        setDevResetLink('');
         try {
-            await nexusApi.auth.resetPasswordRequest(email);
-        } catch {
-            // Always show success regardless
+            const res = await nexusApi.auth.resetPasswordRequest(email);
+            if (res?.reset_token) {
+                setDevResetLink(`/reset-password?token=${encodeURIComponent(res.reset_token)}`);
+            }
+            setSent(true);
+        } catch (err) {
+            setSent(true);
         } finally {
             setLoading(false);
-            setSent(true);
         }
     };
 
@@ -37,9 +42,19 @@ export default function ForgotPassword() {
             }
         >
             {sent ? (
-                <p className="text-sm text-foreground text-center">
-                    If an account exists with that email, you'll receive a password reset link shortly.
-                </p>
+                <div className="space-y-3 text-sm text-foreground text-center">
+                    <p>
+                        If an account exists with that email, you'll receive a password reset link shortly.
+                    </p>
+                    {devResetLink && (
+                        <p className="text-xs text-muted-foreground break-all">
+                            Dev reset link:{' '}
+                            <Link to={devResetLink} className="text-primary hover:underline">
+                                {devResetLink}
+                            </Link>
+                        </p>
+                    )}
+                </div>
             ) : (
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="space-y-2">

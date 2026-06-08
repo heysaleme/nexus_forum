@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,10 +10,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/plugin/opentelemetry/tracing"
 
 	"nexus-forum-backend/internal/config"
 	"nexus-forum-backend/internal/database"
@@ -22,6 +25,7 @@ import (
 	"nexus-forum-backend/internal/repository"
 	"nexus-forum-backend/internal/service"
 	"nexus-forum-backend/internal/storage"
+	"nexus-forum-backend/internal/telemetry"
 )
 
 func main() {
@@ -36,6 +40,15 @@ func main() {
 	logger := middleware.Logger
 
 	logger.Info("starting backend server", "port", cfg.Port, "db_type", cfg.DBType)
+
+	ctx := context.Background()
+	otelShutdown, err := telemetry.Init(ctx, cfg.OTELService, cfg.OTELEndpoint)
+	if err != nil {
+		log.Fatalf("failed to init opentelemetry: %v", err)
+	}
+	defer func() {
+		_ = otelShutdown(context.Background())
+	}()
 
 	// 3. Connect to Database
 	var db *gorm.DB
@@ -54,6 +67,11 @@ func main() {
 
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
+	}
+	if err := db.Use(tracing.NewPlugin()); err != nil {
+		logger.Warn("gorm opentelemetry plugin not enabled", "error", err)
+	} else {
+		logger.Info("gorm opentelemetry tracing enabled")
 	}
 	logger.Info("database connected", "db_type", cfg.DBType, "sqlite_file", cfg.SqliteDB)
 
@@ -166,6 +184,7 @@ func main() {
 		GithubClientID:     cfg.GithubClientID,
 		GithubClientSecret: cfg.GithubClientSecret,
 		FrontendURL:        cfg.FrontendURL,
+		TurnstileSiteKey:   cfg.TurnstileSiteKey,
 	}
 
 	// 7. Setup Gin Router
@@ -173,6 +192,7 @@ func main() {
 	r := gin.New()
 
 	// Apply Middlewares
+	r.Use(otelgin.Middleware(cfg.OTELService))
 	r.Use(CORSMiddleware())
 	r.Use(middleware.PrometheusMiddleware())
 	r.Use(middleware.LoggerMiddleware())
@@ -197,6 +217,7 @@ func main() {
 		api.POST("/auth/forgot-password", authRateLimit, handlers.ForgotPassword)
 		api.POST("/auth/reset-password", authRateLimit, handlers.ResetPassword)
 		api.POST("/auth/refresh", authRateLimit, handlers.RefreshToken)
+		api.POST("/auth/logout", handlers.Logout)
 
 		// OAuth endpoints (public — no JWT required)
 		api.GET("/auth/oauth/config", handler.GetOAuthProviderConfig(oauthCfg))
@@ -289,23 +310,30 @@ func main() {
 			// Reports (any authenticated user)
 			secured.POST("/reports", handlers.CreateReport)
 
-			// Moderation actions (admin/moderator only, enforced inside service)
-			secured.POST("/moderation/users/:id/ban", handlers.BanUser)
-			secured.POST("/moderation/users/:id/unban", handlers.UnbanUser)
-			secured.POST("/moderation/users/:id/shadow-ban", handlers.ShadowBanUser)
-			secured.POST("/moderation/users/:id/unshadow-ban", handlers.UnshadowBanUser)
-			secured.POST("/moderation/posts/:id/remove", handlers.RemovePost)
-			secured.POST("/moderation/comments/:id/remove", handlers.RemoveComment)
-			secured.GET("/moderation/logs", handlers.GetModerationLogs)
-			secured.GET("/moderation/communities/:id/logs", handlers.GetCommunityModerationLogs)
-			secured.GET("/moderation/reports", handlers.GetReports)
-			secured.PUT("/moderation/reports/:id", handlers.UpdateReport)
-			secured.GET("/moderation/filters", handlers.ListKeywordFilters)
-			secured.POST("/moderation/filters", handlers.AddKeywordFilter)
-			secured.DELETE("/moderation/filters/:id", handlers.RemoveKeywordFilter)
+			// Moderation (admin + moderator) — route-level RBAC + service checks
+			mod := secured.Group("/moderation")
+			mod.Use(middleware.RequireAdminOrMod())
+			{
+				mod.POST("/users/:id/ban", handlers.BanUser)
+				mod.POST("/users/:id/unban", handlers.UnbanUser)
+				mod.POST("/users/:id/shadow-ban", handlers.ShadowBanUser)
+				mod.POST("/users/:id/unshadow-ban", handlers.UnshadowBanUser)
+				mod.POST("/posts/:id/remove", handlers.RemovePost)
+				mod.POST("/comments/:id/remove", handlers.RemoveComment)
+				mod.GET("/logs", handlers.GetModerationLogs)
+				mod.GET("/communities/:id/logs", handlers.GetCommunityModerationLogs)
+				mod.GET("/reports", handlers.GetReports)
+				mod.PUT("/reports/:id", handlers.UpdateReport)
+				mod.GET("/filters", handlers.ListKeywordFilters)
+				mod.POST("/filters", handlers.AddKeywordFilter)
+				mod.DELETE("/filters/:id", handlers.RemoveKeywordFilter)
+			}
 
-			// Analytics (admin only enforced by role check in middleware or service)
-			secured.GET("/analytics/dashboard", handlers.GetAnalyticsDashboard)
+			// Admin-only routes
+			secured.GET("/analytics/dashboard", middleware.RequireAdmin(), handlers.GetAnalyticsDashboard)
+			if os.Getenv("ENABLE_BREAKER_DEBUG") == "true" {
+				secured.POST("/admin/circuit-breaker/:name/probe", middleware.RequireAdmin(), handlers.ProbeCircuitBreaker)
+			}
 		}
 	}
 

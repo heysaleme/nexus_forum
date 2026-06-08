@@ -13,6 +13,7 @@ import { ArrowLeft, Upload, Plus, X } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import { motion } from 'framer-motion';
+import { validateFileSize, UPLOAD_LIMITS_MB, limitLabelForCategory } from '@/lib/validateFileSize';
 
 const CATEGORIES = ['anime', 'gaming', 'fandoms', 'roleplay', 'art', 'music', 'books', 'movies', 'sports', 'technology', 'science', 'lifestyle', 'other'];
 
@@ -39,18 +40,34 @@ export default function CreateCommunity() {
         const file = e.target.files[0];
         if (!file) return;
         setUploadingAvatar(true);
-        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'community/avatars' });
-        setAvatarUrl(file_url);
-        setUploadingAvatar(false);
+        try {
+            validateFileSize(file, UPLOAD_LIMITS_MB['community/avatars']);
+            const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'community/avatars' });
+            setAvatarUrl(file_url);
+            toast({ title: '✅ Аватар загружен' });
+        } catch (err) {
+            toast({ title: err.message || 'Не удалось загрузить аватар', variant: 'destructive' });
+        } finally {
+            setUploadingAvatar(false);
+            e.target.value = '';
+        }
     };
 
     const handleBannerUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
         setUploadingBanner(true);
-        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'community/banners' });
-        setBannerUrl(file_url);
-        setUploadingBanner(false);
+        try {
+            validateFileSize(file, UPLOAD_LIMITS_MB['community/banners']);
+            const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'community/banners' });
+            setBannerUrl(file_url);
+            toast({ title: '✅ Баннер загружен' });
+        } catch (err) {
+            toast({ title: err.message || 'Не удалось загрузить баннер', variant: 'destructive' });
+        } finally {
+            setUploadingBanner(false);
+            e.target.value = '';
+        }
     };
 
     const addTag = () => {
@@ -140,7 +157,9 @@ export default function CreateCommunity() {
                         </label>
                         <div>
                             <p className="text-sm font-semibold">Аватар и баннер</p>
-                            <p className="text-xs text-muted-foreground">Нажмите для загрузки</p>
+                            <p className="text-xs text-muted-foreground">
+                                Аватар {limitLabelForCategory('community/avatars')}, баннер {limitLabelForCategory('community/banners')}
+                            </p>
                         </div>
                     </div>
                 </div>

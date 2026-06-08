@@ -9,6 +9,7 @@ import { FileText, TrendingUp, Users, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
+import { useToast } from '@/components/ui/use-toast';
 
 const CATEGORIES = [
     { id: 'all', label: 'Все интересы' },
@@ -24,12 +25,14 @@ const CATEGORIES = [
     { id: 'lifestyle', label: 'Лайфстайл' },
 ];
 
+const BACKEND_SORTS = new Set(['hot', 'new', 'top']);
+
 export default function Home() {
     const { user } = useAuth();
+    const { toast } = useToast();
 
     const [posts, setPosts] = useState([]);
-    const [loading, setLoading] = useState(true)
-
+    const [loading, setLoading] = useState(true);
     const [sort, setSort] = useState('hot');
     const [communities, setCommunities] = useState([]);
     const [allCommunities, setAllCommunities] = useState([]);
@@ -41,55 +44,56 @@ export default function Home() {
 
     const loadData = async () => {
         setLoading(true);
+        try {
+            const [communitiesData, popularComm] = await Promise.all([
+                nexusApi.entities.Community.list('-name', 100).catch(() => []),
+                nexusApi.entities.Community.list('-member_count', 5).catch(() => []),
+            ]);
 
-        const [allPosts, communitiesData, popularComm] = await Promise.all([
-            nexusApi.entities.Post.filter({ status: 'published' }, '-created_date', 50),
-            nexusApi.entities.Community.list('-name', 100).catch(() => []),
-            nexusApi.entities.Community.list('-member_count', 5).catch(() => []),
-        ]);
+            setCommunities(popularComm);
+            setAllCommunities(communitiesData);
 
-        setCommunities(popularComm);
-        setAllCommunities(communitiesData);
+            let feedPosts = [];
 
-        let filtered = allPosts;
+            if (sort === 'following') {
+                if (!user) {
+                    feedPosts = [];
+                } else {
+                    feedPosts = await nexusApi.feed.following({ sort: 'new', limit: 50 });
+                }
+            } else {
+                const backendSort = BACKEND_SORTS.has(sort) ? sort : 'hot';
+                feedPosts = await nexusApi.feed.list({ sort: backendSort, limit: 50 });
+            }
 
-        // Filter by category
-        if (activeCategory !== 'all') {
-            filtered = filtered.filter(p => {
-                const comm = communitiesData.find(c => c.id === p.community_id);
-                return comm?.category === activeCategory;
-            });
+            let filtered = feedPosts;
+
+            if (activeCategory !== 'all') {
+                filtered = filtered.filter((p) => {
+                    const comm = communitiesData.find((c) => c.id === p.community_id);
+                    return comm?.category === activeCategory;
+                });
+            }
+
+            if (sort === 'trending') {
+                filtered = [...filtered].sort(
+                    (a, b) => ((b.views || 0) + (b.score || 0) * 2) - ((a.views || 0) + (a.score || 0) * 2),
+                );
+            }
+
+            setPosts(filtered.slice(0, 20));
+        } catch (err) {
+            toast({ title: err.message || 'Не удалось загрузить ленту', variant: 'destructive' });
+            setPosts([]);
+        } finally {
+            setLoading(false);
         }
-
-        // Filter by followed communities
-        if (sort === 'following' && user) {
-            const memberships = await nexusApi.entities.CommunityMember.filter({ user_id: user.id });
-            const joinedIds = new Set(memberships.map(m => m.community_id));
-            filtered = filtered.filter(p => joinedIds.has(p.community_id));
-        } else if (sort === 'following' && !user) {
-            filtered = [];
-        }
-
-        // Sort
-        if (sort === 'top') {
-            filtered = [...filtered].sort((a, b) => (b.score || 0) - (a.score || 0));
-        } else if (sort === 'trending') {
-            filtered = [...filtered].sort((a, b) => ((b.views || 0) + (b.score || 0) * 2) - ((a.views || 0) + (a.score || 0) * 2));
-        } else if (sort === 'new' || sort === 'following') {
-            filtered = [...filtered].sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
-        }
-        // 'hot' stays as default -created_date
-
-        setPosts(filtered.slice(0, 20));
-        setLoading(false);
     };
 
     return (
         <div className="max-w-7xl mx-auto px-4 py-4">
             <div className="flex gap-6">
-                {/* Main feed */}
                 <div className="flex-1 min-w-0">
-                    {/* Hero banner (for guests) */}
                     {!user && (
                         <motion.div
                             initial={{ opacity: 0, y: -10 }}
@@ -123,7 +127,6 @@ export default function Home() {
                         </motion.div>
                     )}
 
-                    {/* Categories */}
                     <div className="flex gap-2 overflow-x-auto scrollbar-hide mb-4 pb-1">
                         {CATEGORIES.map(({ id, label }) => (
                             <motion.button
@@ -140,19 +143,17 @@ export default function Home() {
                         ))}
                     </div>
 
-                    {/* Sort bar */}
                     <div className="mb-3">
                         <SortBar active={sort} onChange={setSort} />
                     </div>
 
-                    {/* Posts */}
                     {loading ? (
                         <LoadingSpinner size="lg" className="py-20" />
                     ) : posts.length === 0 ? (
                         <EmptyState
                             icon={FileText}
                             title={sort === 'following' ? 'Нет постов из подписок' : 'Лента пуста'}
-                            description={sort === 'following' ? 'Вступи в сообщества, чтобы видеть их публикации здесь' : 'Вступи в сообщества, чтобы видеть публикации'}
+                            description={sort === 'following' ? 'Подпишись на пользователей, чтобы видеть их публикации' : 'Вступи в сообщества, чтобы видеть публикации'}
                             action={
                                 <Link to="/communities">
                                     <Button className="nexus-gradient border-0 text-white rounded-xl shadow-nexus">
@@ -163,14 +164,13 @@ export default function Home() {
                         />
                     ) : (
                         <div className="nexus-feed-shell">
-                            {posts.map(post => (
+                            {posts.map((post) => (
                                 <PostCard key={post.id} post={post} currentUser={user} />
                             ))}
                         </div>
                     )}
                 </div>
 
-                {/* Right sidebar (desktop) */}
                 <div className="hidden lg:flex flex-col gap-4 w-72 flex-shrink-0">
                     <div className="nexus-card p-4">
                         <div className="flex items-center gap-2 mb-3">

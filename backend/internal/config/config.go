@@ -25,7 +25,8 @@ type Config struct {
 	FrontendURL string // e.g. http://localhost:5173 — used to build OAuth redirect URIs
 
 	// Cloudflare Turnstile (optional — CAPTCHA skipped when empty)
-	TurnstileSecret string
+	TurnstileSecret   string
+	TurnstileSiteKey  string
 
 	// Object storage (MinIO S3-compatible; falls back to local ./uploads)
 	MinIOEndpoint   string
@@ -36,6 +37,10 @@ type Config struct {
 	MinIOPublicURL  string // e.g. http://localhost:9000
 	PublicURL       string // API public origin for local file URLs, e.g. http://localhost:8080
 	LocalUploadDir  string
+
+	// OpenTelemetry OTLP endpoint host:port (e.g. tempo:4318)
+	OTELEndpoint string
+	OTELService  string
 }
 
 func LoadConfig() (*Config, error) {
@@ -84,6 +89,7 @@ func LoadConfig() (*Config, error) {
 		GithubClientSecret: os.Getenv("GITHUB_CLIENT_SECRET"),
 		FrontendURL:        frontendURL,
 		TurnstileSecret:    os.Getenv("CLOUDFLARE_TURNSTILE_SECRET"),
+		TurnstileSiteKey:   os.Getenv("CLOUDFLARE_TURNSTILE_SITE_KEY"),
 		MinIOEndpoint:      os.Getenv("MINIO_ENDPOINT"),
 		MinIOAccessKey:     os.Getenv("MINIO_ACCESS_KEY"),
 		MinIOSecretKey:     os.Getenv("MINIO_SECRET_KEY"),
@@ -92,6 +98,8 @@ func LoadConfig() (*Config, error) {
 		MinIOPublicURL:     envOr("MINIO_PUBLIC_URL", "http://localhost:9000"),
 		PublicURL:          envOr("PUBLIC_URL", "http://localhost:"+port),
 		LocalUploadDir:     envOr("LOCAL_UPLOAD_DIR", "./uploads"),
+		OTELEndpoint:       os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+		OTELService:        envOr("OTEL_SERVICE_NAME", "nexus-forum-backend"),
 	}, nil
 }
 

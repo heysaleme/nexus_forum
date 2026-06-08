@@ -9,6 +9,7 @@ import (
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"nexus-forum-backend/internal/resilience"
 )
 
 type MinIOStore struct {
@@ -46,8 +47,10 @@ func (s *MinIOStore) Backend() Backend { return BackendMinIO }
 
 func (s *MinIOStore) Put(ctx context.Context, key string, reader io.Reader, size int64, contentType string) (string, error) {
 	key = strings.TrimPrefix(key, "/")
-	_, err := s.client.PutObject(ctx, s.bucket, key, reader, size, minio.PutObjectOptions{
-		ContentType: contentType,
+	_, err := resilience.Execute(resilience.BreakerMinIO, func() (interface{}, error) {
+		return s.client.PutObject(ctx, s.bucket, key, reader, size, minio.PutObjectOptions{
+			ContentType: contentType,
+		})
 	})
 	if err != nil {
 		return "", err

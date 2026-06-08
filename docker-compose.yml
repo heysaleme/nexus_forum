@@ -20,11 +20,12 @@ services:
       - "8080:8080"
     volumes:
       - ./backend/uploads:/app/uploads
+      - backend_data:/app/data
     environment:
       - PORT=8080
       - JWT_SECRET=nexus-super-secret-key-1234567890
       - DB_TYPE=sqlite
-      - SQLITE_DB=nexus_forum.db
+      - SQLITE_DB=/app/data/nexus_forum.db
       - PUBLIC_URL=http://localhost:8080
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=minioadmin
@@ -33,8 +34,12 @@ services:
       - MINIO_PUBLIC_URL=http://localhost:9000
       - MINIO_USE_SSL=false
       - LOCAL_UPLOAD_DIR=./uploads
+      - OTEL_EXPORTER_OTLP_ENDPOINT=tempo:4318
+      - OTEL_SERVICE_NAME=nexus-forum-backend
+      - ENABLE_BREAKER_DEBUG=true
     depends_on:
       - minio
+      - tempo
     restart: unless-stopped
 
   frontend:
@@ -47,5 +52,73 @@ services:
       - backend
     restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:2.6.0
+    command: ["-config.file=/etc/tempo.yaml"]
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ./monitoring/tempo/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.1.1
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./monitoring/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:3.1.1
+    volumes:
+      - ./monitoring/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    restart: unless-stopped
+
 volumes:
   minio_data:
+  backend_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  tempo_data:

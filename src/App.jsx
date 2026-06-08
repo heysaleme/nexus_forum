@@ -28,6 +28,7 @@ import Register from '@/pages/Register';
 import ForgotPassword from '@/pages/ForgotPassword';
 import ResetPassword from '@/pages/ResetPassword';
 import OAuthCallback from '@/pages/OAuthCallback';
+import TurnstileModal from '@/components/TurnstileModal';
 
 import {
     Dialog,
@@ -129,6 +130,7 @@ function App() {
                     <AuthenticatedApp />
                 </Router>
                 <Toaster />
+                <TurnstileModal />
             </QueryClientProvider>
         </AuthProvider>
     );

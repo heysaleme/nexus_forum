@@ -1,5 +1,8 @@
+import { requestCaptchaChallenge } from '@/lib/captcha';
+
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
 const SESSION_KEY = 'nexus_forum_session_token';
+const REFRESH_KEY = 'nexus_forum_refresh_token';
 
 const listeners = new Map();
 
@@ -8,19 +11,58 @@ const notifySubscribers = (entityName, event) => {
     entityListeners.forEach((listener) => listener(event));
 };
 
-const getToken = () => {
-    return localStorage.getItem(SESSION_KEY);
-};
+const getToken = () => localStorage.getItem(SESSION_KEY);
+const getRefreshToken = () => localStorage.getItem(REFRESH_KEY);
 
 const setToken = (token) => {
-    localStorage.setItem(SESSION_KEY, token);
+    if (token) localStorage.setItem(SESSION_KEY, token);
 };
 
-const request = async (path, options = {}) => {
+const persistSession = (res) => {
+    if (res?.access_token) setToken(res.access_token);
+    if (res?.refresh_token) localStorage.setItem(REFRESH_KEY, res.refresh_token);
+};
+
+const clearSession = () => {
+    localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(REFRESH_KEY);
+};
+
+let refreshPromise = null;
+
+const refreshAccessToken = async () => {
+    const refresh = getRefreshToken();
+    if (!refresh) throw new Error('No refresh token');
+
+    if (!refreshPromise) {
+        refreshPromise = fetch(`${BASE_URL}/auth/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refresh_token: refresh }),
+        })
+            .then(async (response) => {
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    const err = new Error(errData.error || 'Session expired');
+                    err.status = response.status;
+                    throw err;
+                }
+                const data = await response.json();
+                persistSession(data);
+                return data.access_token;
+            })
+            .finally(() => {
+                refreshPromise = null;
+            });
+    }
+    return refreshPromise;
+};
+
+const request = async (path, options = {}, retried = false) => {
     const token = getToken();
     const headers = {
         'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...options.headers,
     };
 
@@ -29,6 +71,15 @@ const request = async (path, options = {}) => {
         headers,
     });
 
+    if (response.status === 401 && !retried && getRefreshToken() && !path.startsWith('/auth/')) {
+        try {
+            await refreshAccessToken();
+            return request(path, options, true);
+        } catch {
+            clearSession();
+        }
+    }
+
     if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         const err = new Error(errData.error || `HTTP error ${response.status}`);
@@ -36,12 +87,29 @@ const request = async (path, options = {}) => {
         throw err;
     }
 
-    // 204 No Content doesn't have JSON body
     if (response.status === 204) {
         return { success: true };
     }
 
     return response.json();
+};
+
+const requestWithCaptcha = async (path, options = {}) => {
+    try {
+        return await request(path, options);
+    } catch (err) {
+        if (err.status === 403 && /captcha/i.test(err.message || '')) {
+            const turnstileToken = await requestCaptchaChallenge();
+            return request(path, {
+                ...options,
+                headers: {
+                    ...options.headers,
+                    'X-Turnstile-Token': turnstileToken,
+                },
+            });
+        }
+        throw err;
+    }
 };
 
 const buildQueryString = (filter, sortSpec, limit) => {
@@ -194,23 +262,14 @@ const auth = {
             error.status = 401;
             throw error;
         }
-        try {
-            return await request('/auth/me');
-        } catch (e) {
-            if (e.status === 401) {
-                localStorage.removeItem(SESSION_KEY);
-            }
-            throw e;
-        }
+        return request('/auth/me');
     },
     async loginViaEmailPassword(email, password) {
         const res = await request('/auth/login', {
             method: 'POST',
             body: JSON.stringify({ email, password }),
         });
-        if (res.access_token) {
-            setToken(res.access_token);
-        }
+        persistSession(res);
         return res;
     },
     async register({ email, password }) {
@@ -224,9 +283,7 @@ const auth = {
             method: 'POST',
             body: JSON.stringify({ email, otpCode }),
         });
-        if (res.access_token) {
-            setToken(res.access_token);
-        }
+        persistSession(res);
         return res;
     },
     async resendOtp() {
@@ -235,6 +292,11 @@ const auth = {
     setToken(token) {
         setToken(token);
     },
+    getRefreshToken() {
+        return getRefreshToken();
+    },
+    persistSession,
+    clearSession,
     loginWithProvider(provider, redirectPath = '/') {
         // Legacy stub — kept for compatibility; use googleOAuthUrl() instead
         console.warn('loginWithProvider is deprecated. Use googleOAuthUrl() for real OAuth.');
@@ -253,9 +315,7 @@ const auth = {
             method: 'POST',
             body: JSON.stringify({ code, state }),
         });
-        if (res.access_token) {
-            setToken(res.access_token);
-        }
+        persistSession(res);
         return res;
     },
     async githubOAuthUrl() {
@@ -266,10 +326,12 @@ const auth = {
             method: 'POST',
             body: JSON.stringify({ code, state }),
         });
-        if (res.access_token) {
-            setToken(res.access_token);
-        }
+        persistSession(res);
         return res;
+    },
+    async refreshSession() {
+        const access = await refreshAccessToken();
+        return { access_token: access };
     },
     async updateMe(profile) {
         return request('/auth/me', {
@@ -277,8 +339,20 @@ const auth = {
             body: JSON.stringify(profile),
         });
     },
-    logout(redirectPath) {
-        localStorage.removeItem(SESSION_KEY);
+    async logout(redirectPath) {
+        const refresh = getRefreshToken();
+        try {
+            if (refresh) {
+                await fetch(`${BASE_URL}/auth/logout`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refresh_token: refresh }),
+                });
+            }
+        } catch {
+            // still clear local session
+        }
+        clearSession();
         if (redirectPath) {
             window.location.href = typeof redirectPath === 'string' ? redirectPath : '/';
         }
@@ -287,10 +361,16 @@ const auth = {
         window.location.href = '/login';
     },
     async resetPasswordRequest(email) {
-        return { success: true };
+        return request('/auth/forgot-password', {
+            method: 'POST',
+            body: JSON.stringify({ email }),
+        });
     },
     async resetPassword({ resetToken, newPassword }) {
-        return { success: true };
+        return request('/auth/reset-password', {
+            method: 'POST',
+            body: JSON.stringify({ resetToken, newPassword }),
+        });
     },
     async changePassword({ old_password, new_password }) {
         return request('/auth/change-password', {
@@ -303,6 +383,23 @@ const auth = {
 const nexusApi = {
     BASE_URL,
     auth,
+    analytics: {
+        async getDashboard() {
+            return request('/analytics/dashboard');
+        },
+    },
+    feed: {
+        async list({ sort = 'hot', limit = 50 } = {}) {
+            const params = new URLSearchParams({ sort, limit: String(limit) });
+            const res = await request(`/posts?${params}`);
+            return Array.isArray(res) ? res.map(parsePost) : [];
+        },
+        async following({ sort = 'new', limit = 50 } = {}) {
+            const params = new URLSearchParams({ sort, limit: String(limit) });
+            const res = await request(`/posts/following?${params}`);
+            return Array.isArray(res) ? res.map(parsePost) : [];
+        },
+    },
     Search: {
         async query(q) {
             const data = await request(`/search?q=${encodeURIComponent(q)}`);
@@ -383,6 +480,15 @@ const nexusApi = {
         },
         Post: {
             ...createEntityApi('Post', '/posts'),
+            async create(payload) {
+                const record = await requestWithCaptcha('/posts', {
+                    method: 'POST',
+                    body: JSON.stringify(payload),
+                });
+                const resRecord = parsePost(record);
+                notifySubscribers('Post', { type: 'create', data: resRecord });
+                return resRecord;
+            },
             async list(sortSpec = null, limit = null) {
                 const query = buildQueryString(null, sortSpec, limit);
                 const res = await request(`/posts${query}`);
@@ -412,6 +518,14 @@ const nexusApi = {
         },
         Comment: {
             ...createEntityApi('Comment', '/comments'),
+            async create(payload) {
+                const record = await requestWithCaptcha('/comments', {
+                    method: 'POST',
+                    body: JSON.stringify(payload),
+                });
+                notifySubscribers('Comment', { type: 'create', data: record });
+                return record;
+            },
             async filter(filter = {}) {
                 if (filter.post_id) {
                     return request(`/comments?post_id=${filter.post_id}`);
@@ -530,14 +644,7 @@ const nexusApi = {
         },
         Report: {
             async list() {
-                try {
-                    return await request('/moderation/reports');
-                } catch {
-                    return [
-                        { id: 1, status: 'pending', reason: 'spam', target_type: 'post', description: 'Этот пост содержит спам-ссылки', reporter_username: 'kaizer' },
-                        { id: 2, status: 'pending', reason: 'harassment', target_type: 'comment', description: 'Оскорбление пользователей в комментариях', reporter_username: 'moduser' },
-                    ];
-                }
+                return request('/moderation/reports');
             },
             async create(payload) {
                 return request('/reports', {

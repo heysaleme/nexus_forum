@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
+
+	"nexus-forum-backend/internal/resilience"
 )
 
 // turnstileVerifyURL is Cloudflare's server-side siteverify endpoint.
@@ -36,7 +37,7 @@ func VerifyTurnstileToken(secret, token, remoteIP string) (bool, error) {
 		form.Set("remoteip", remoteIP)
 	}
 
-	resp, err := http.PostForm(turnstileVerifyURL, form)
+	resp, err := resilience.PostForm(resilience.BreakerExternal, turnstileVerifyURL, form)
 	if err != nil {
 		return false, fmt.Errorf("turnstile: request failed: %w", err)
 	}

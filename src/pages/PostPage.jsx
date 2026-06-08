@@ -11,6 +11,7 @@ import ReportModal from '@/components/ui/ReportModal';
 import { ArrowUp, ArrowDown, MessageCircle, Share2, ArrowLeft, Send, Pin, Trash2, ExternalLink, BarChart2, Flag } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/components/ui/use-toast';
+import { validateFileSize, UPLOAD_LIMITS_MB, limitLabelForCategory } from '@/lib/validateFileSize';
 
 function timeAgoShort(date) {
     if (!date) return '';
@@ -417,9 +418,17 @@ export default function PostPage() {
         const file = e.target.files[0];
         if (!file) return;
         setEditUploading(true);
-        const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'posts/images' });
-        setEditMediaUrls(prev => [...prev, file_url]);
-        setEditUploading(false);
+        try {
+            validateFileSize(file, UPLOAD_LIMITS_MB['posts/images']);
+            const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'posts/images' });
+            setEditMediaUrls(prev => [...prev, file_url]);
+            toast({ title: '✅ Изображение загружено' });
+        } catch (err) {
+            toast({ title: err.message || 'Не удалось загрузить изображение', variant: 'destructive' });
+        } finally {
+            setEditUploading(false);
+            e.target.value = '';
+        }
     };
 
     const handleSaveEdit = async () => {
@@ -605,7 +614,9 @@ export default function PostPage() {
                         {/* Image management */}
                         {(post.type === 'image' || editMediaUrls.length > 0) && (
                             <div>
-                                <p className="text-xs font-semibold text-muted-foreground mb-2">Изображения</p>
+                                <p className="text-xs font-semibold text-muted-foreground mb-2">
+                                    Изображения ({limitLabelForCategory('posts/images')})
+                                </p>
                                 {editMediaUrls.length > 0 && (
                                     <div className="flex gap-2 flex-wrap mb-2">
                                         {editMediaUrls.map((url, i) => (

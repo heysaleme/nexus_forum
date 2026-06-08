@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"nexus-forum-backend/internal/resilience"
 	"nexus-forum-backend/internal/service"
 )
 
@@ -74,6 +75,7 @@ type OAuthConfig struct {
 	GithubClientID     string
 	GithubClientSecret string
 	FrontendURL        string
+	TurnstileSiteKey   string
 }
 
 // GetOAuthProviderConfig returns which OAuth providers are available.
@@ -82,9 +84,10 @@ type OAuthConfig struct {
 func GetOAuthProviderConfig(cfg OAuthConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"google_enabled": cfg.GoogleClientID != "",
-			"github_enabled": cfg.GithubClientID != "",
-			"apple_enabled":  false,
+			"google_enabled":     cfg.GoogleClientID != "",
+			"github_enabled":     cfg.GithubClientID != "",
+			"apple_enabled":      false,
+			"turnstile_site_key": cfg.TurnstileSiteKey,
 		})
 	}
 }
@@ -203,7 +206,7 @@ func exchangeGoogleCode(code, redirectURI string, cfg OAuthConfig) (*googleToken
 		"grant_type":    {"authorization_code"},
 	}
 
-	resp, err := http.PostForm("https://oauth2.googleapis.com/token", form)
+	resp, err := resilience.PostForm(resilience.BreakerOAuth, "https://oauth2.googleapis.com/token", form)
 	if err != nil {
 		return nil, fmt.Errorf("http post: %w", err)
 	}
@@ -382,7 +385,7 @@ func exchangeGitHubCode(code, redirectURI string, cfg OAuthConfig) (string, erro
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := resilience.Do(resilience.BreakerOAuth, req)
 	if err != nil {
 		return "", err
 	}
@@ -414,7 +417,7 @@ func fetchGitHubUser(accessToken string) (*githubUserInfo, error) {
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := resilience.Do(resilience.BreakerOAuth, req)
 	if err != nil {
 		return nil, err
 	}
@@ -443,7 +446,7 @@ func fetchGitHubPrimaryEmail(accessToken string) (string, error) {
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := resilience.Do(resilience.BreakerOAuth, req)
 	if err != nil {
 		return "", err
 	}

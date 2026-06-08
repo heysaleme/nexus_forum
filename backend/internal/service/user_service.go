@@ -181,6 +181,14 @@ func (s *userService) List(sortSpec string, limit int) ([]*model.User, error) {
 }
 
 func (s *userService) UpdateUser(actorID, userID uint, role string, isBanned *bool) (*model.User, error) {
+	actor, err := s.repo.GetByID(actorID)
+	if err != nil {
+		return nil, errors.New("actor not found")
+	}
+	if actor.Role != "admin" {
+		return nil, errors.New("admin access required")
+	}
+
 	user, err := s.repo.GetByID(userID)
 	if err != nil {
 		return nil, err

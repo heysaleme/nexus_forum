@@ -46,10 +46,10 @@ export const AuthProvider = ({ children }) => {
         await checkUserAuth();
     };
 
-    const logout = (shouldRedirect = true) => {
+    const logout = async (shouldRedirect = true) => {
         setUser(null);
         setIsAuthenticated(false);
-        nexusApi.auth.logout(shouldRedirect ? '/' : undefined);
+        await nexusApi.auth.logout(shouldRedirect ? '/' : undefined);
     };
 
     const navigateToLogin = () => {

@@ -11,6 +11,7 @@ import { formatDistanceToNow, format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useToast } from '@/components/ui/use-toast';
+import { validateFileSize, UPLOAD_LIMITS_MB, limitLabelForCategory } from '@/lib/validateFileSize';
 import {
     Dialog,
     DialogContent,
@@ -541,13 +542,9 @@ export default function Chats() {
         const file = e.target.files[0];
         if (!file) return;
 
-        if (file.size > 10 * 1024 * 1024) {
-            toast({ title: 'Размер файла превышает 10MB', variant: 'destructive' });
-            return;
-        }
-
         setUploading(true);
         try {
+            validateFileSize(file, UPLOAD_LIMITS_MB['chat/attachments']);
             const data = await nexusApi.integrations.Core.UploadFile({ file, category: 'chat/attachments' });
             const type = data.mime_type?.startsWith('image/') ? 'image' : 'file';
             setAttachment({
@@ -560,6 +557,7 @@ export default function Chats() {
             toast({ title: 'Не удалось загрузить файл: ' + err.message, variant: 'destructive' });
         } finally {
             setUploading(false);
+            e.target.value = '';
         }
     };
 
@@ -884,6 +882,9 @@ export default function Chats() {
                                 </div>
                             )}
 
+                            <p className="text-[10px] text-muted-foreground mb-1 px-1">
+                                Вложения {limitLabelForCategory('chat/attachments')}
+                            </p>
                             <div className="flex gap-2">
                                 <input
                                     type="file"

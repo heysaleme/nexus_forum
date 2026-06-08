@@ -12,6 +12,7 @@ type RefreshTokenRepository interface {
 	Create(token *model.RefreshToken) error
 	GetValidToken(token string) (*model.RefreshToken, error)
 	Revoke(id uint) error
+	RevokeByToken(token string) error
 }
 
 type refreshTokenRepository struct {
@@ -38,4 +39,10 @@ func (r *refreshTokenRepository) GetValidToken(token string) (*model.RefreshToke
 
 func (r *refreshTokenRepository) Revoke(id uint) error {
 	return r.db.Model(&model.RefreshToken{}).Where("id = ?", id).Update("revoked", true).Error
+}
+
+func (r *refreshTokenRepository) RevokeByToken(token string) error {
+	return r.db.Model(&model.RefreshToken{}).
+		Where("token = ? AND revoked = ?", token, false).
+		Update("revoked", true).Error
 }

@@ -21,6 +21,7 @@ export default function AdminPanel() {
     const [communities, setCommunities] = useState([]);
     const [reports, setReports] = useState([]);
     const [posts, setPosts] = useState([]);
+    const [dashboard, setDashboard] = useState(null);
     const [loading, setLoading] = useState(true);
     const [userSearch, setUserSearch] = useState('');
 
@@ -31,17 +32,24 @@ export default function AdminPanel() {
 
     const loadData = async () => {
         setLoading(true);
-        const [usersData, communitiesData, reportsData, postsData] = await Promise.all([
-            nexusApi.entities.User.list('-created_date', 50),
-            nexusApi.entities.Community.list('-member_count', 30),
-            nexusApi.entities.Report.list('-created_date', 50),
-            nexusApi.entities.Post.list('-created_date', 10),
-        ]);
-        setUsers(usersData);
-        setCommunities(communitiesData);
-        setReports(reportsData);
-        setPosts(postsData);
-        setLoading(false);
+        try {
+            const [usersData, communitiesData, reportsData, postsData, dashboardData] = await Promise.all([
+                nexusApi.entities.User.list('-created_date', 50),
+                nexusApi.entities.Community.list('-member_count', 30),
+                nexusApi.entities.Report.list(),
+                nexusApi.entities.Post.list('-created_date', 10),
+                nexusApi.analytics.getDashboard().catch(() => null),
+            ]);
+            setUsers(usersData);
+            setCommunities(communitiesData);
+            setReports(Array.isArray(reportsData) ? reportsData : []);
+            setPosts(postsData);
+            setDashboard(dashboardData);
+        } catch (err) {
+            toast({ title: err.message || 'Не удалось загрузить данные панели', variant: 'destructive' });
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleBanUser = async (u) => {
@@ -80,7 +88,9 @@ export default function AdminPanel() {
     };
 
     const stats = {
-        totalUsers: users.length,
+        totalUsers: dashboard?.total_users ?? users.length,
+        dau: dashboard?.dau ?? 0,
+        mau: dashboard?.mau ?? 0,
         bannedUsers: users.filter(u => u.is_banned).length,
         totalCommunities: communities.length,
         pendingReports: reports.filter(r => r.status === 'pending').length,
@@ -88,22 +98,17 @@ export default function AdminPanel() {
         totalAdmins: users.filter(u => u.role === 'admin').length,
     };
 
-    const chartData = [
-        { name: 'Пн', users: 12, posts: 45 },
-        { name: 'Вт', users: 19, posts: 67 },
-        { name: 'Ср', users: 15, posts: 52 },
-        { name: 'Чт', users: 28, posts: 89 },
-        { name: 'Пт', users: 34, posts: 112 },
-        { name: 'Сб', users: 42, posts: 134 },
-        { name: 'Вс', users: 38, posts: 98 },
-    ];
+    const chartData = (dashboard?.user_growth_30d || []).map((row) => ({
+        name: row.day ? String(row.day).slice(5) : '',
+        users: row.count || 0,
+    }));
 
     const pieData = [
-        { name: 'Спам', value: reports.filter(r => r.reason === 'spam').length || 5 },
-        { name: 'Харассмент', value: reports.filter(r => r.reason === 'harassment').length || 3 },
-        { name: 'NSFW', value: reports.filter(r => r.reason === 'nsfw').length || 2 },
-        { name: 'Другое', value: reports.filter(r => r.reason === 'other').length || 1 },
-    ];
+        { name: 'Спам', value: reports.filter(r => r.reason === 'spam').length },
+        { name: 'Харассмент', value: reports.filter(r => r.reason === 'harassment').length },
+        { name: 'NSFW', value: reports.filter(r => r.reason === 'nsfw').length },
+        { name: 'Другое', value: reports.filter(r => r.reason === 'other').length },
+    ].filter((item) => item.value > 0);
     const COLORS = ['#6A5AE0', '#8B7CFF', '#5EDFFF', '#EF4444'];
 
     const filteredUsers = users.filter(u =>
@@ -132,9 +137,11 @@ export default function AdminPanel() {
             </div>
 
             {/* Stats grid */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-5">
                 {[
                     { label: 'Пользователей', value: stats.totalUsers, color: 'text-primary', icon: Users },
+                    { label: 'DAU', value: stats.dau, color: 'text-cyan-600', icon: BarChart2 },
+                    { label: 'MAU', value: stats.mau, color: 'text-indigo-600', icon: BarChart2 },
                     { label: 'Заблокировано', value: stats.bannedUsers, color: 'text-destructive', icon: Ban },
                     { label: 'Сообществ', value: stats.totalCommunities, color: 'text-green-600', icon: Users },
                     { label: 'Жалоб', value: stats.pendingReports, color: 'text-orange-600', icon: AlertTriangle },
@@ -170,7 +177,10 @@ export default function AdminPanel() {
                 <TabsContent value="stats">
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                         <div className="nexus-card p-4 lg:col-span-2">
-                            <h3 className="font-bold text-sm mb-3">Активность за неделю</h3>
+                            <h3 className="font-bold text-sm mb-3">Рост пользователей (30 дней)</h3>
+                            {chartData.length === 0 ? (
+                                <p className="text-xs text-muted-foreground py-16 text-center">Нет данных о регистрациях за последние 30 дней</p>
+                            ) : (
                             <ResponsiveContainer width="100%" height={200}>
                                 <AreaChart data={chartData}>
                                     <defs>
@@ -187,14 +197,18 @@ export default function AdminPanel() {
                                     <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
                                     <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
                                     <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '12px', fontSize: '12px' }} />
-                                    <Area type="monotone" dataKey="users" stroke="#6A5AE0" strokeWidth={2} fill="url(#colorUsers)" name="Пользователи" />
-                                    <Area type="monotone" dataKey="posts" stroke="#5EDFFF" strokeWidth={2} fill="url(#colorPosts)" name="Посты" />
+                                    <Area type="monotone" dataKey="users" stroke="#6A5AE0" strokeWidth={2} fill="url(#colorUsers)" name="Регистрации" />
                                 </AreaChart>
                             </ResponsiveContainer>
+                            )}
                         </div>
 
                         <div className="nexus-card p-4">
                             <h3 className="font-bold text-sm mb-3">Причины жалоб</h3>
+                            {pieData.length === 0 ? (
+                                <p className="text-xs text-muted-foreground py-16 text-center">Жалоб пока нет</p>
+                            ) : (
+                            <>
                             <ResponsiveContainer width="100%" height={180}>
                                 <PieChart>
                                     <Pie data={pieData} cx="50%" cy="50%" innerRadius={50} outerRadius={70} dataKey="value">
@@ -212,6 +226,8 @@ export default function AdminPanel() {
                                     </div>
                                 ))}
                             </div>
+                            </>
+                            )}
                         </div>
                     </div>
                 </TabsContent>

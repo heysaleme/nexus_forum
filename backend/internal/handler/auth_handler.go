@@ -157,6 +157,15 @@ func (h *Handlers) ChangePassword(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+func (h *Handlers) Logout(c *gin.Context) {
+	var req struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	_ = h.AuthService.Logout(req.RefreshToken)
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
 func (h *Handlers) RefreshToken(c *gin.Context) {
 	var req struct {
 		RefreshToken string `json:"refresh_token" binding:"required"`
