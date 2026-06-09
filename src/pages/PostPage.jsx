@@ -186,8 +186,8 @@ function CommentItem({ comment, depth = 0, currentUser, postId, onCommentAdded, 
     };
 
     return (
-        <div className={`${depth > 0 ? 'ml-4 border-l-2 border-border/30 pl-3' : ''}`}>
-            <div className="py-2.5">
+        <div id={`comment-${comment.id}`} className={`${depth > 0 ? 'ml-4 border-l-2 border-border/30 pl-3' : ''}`}>
+            <div className="py-3.5">
                 <div className="flex items-center gap-2 mb-1">
                     <img src={comment.author_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${comment.author_username}`} className="w-6 h-6 rounded-full object-cover" alt="" />
                     <Link to={profilePath(comment.author_id, currentUser?.id)} className="text-xs font-bold hover:text-primary">{comment.author_username}</Link>
@@ -206,7 +206,7 @@ function CommentItem({ comment, depth = 0, currentUser, postId, onCommentAdded, 
                 ) : comment.is_deleted ? (
                     <p className="text-xs text-muted-foreground italic ml-8">{comment.content}</p>
                 ) : (
-                    <p className="text-sm text-foreground leading-relaxed ml-8">
+                    <p className="comment-body ml-8">
                         {comment.reply_to_username && (
                             <span className="text-primary font-semibold mr-1">@{comment.reply_to_username}</span>
                         )}
@@ -648,7 +648,7 @@ export default function PostPage() {
                     </div>
                 ) : (
                     <>
-                        <h1 className="px-4 text-xl font-display font-black text-foreground leading-snug mb-2 flex items-center gap-2 flex-wrap">
+                        <h1 className="px-4 text-[16px] font-display font-black text-foreground leading-snug mb-2 flex items-center gap-2 flex-wrap">
                             {post.title}
                             {post.is_nsfw && <Badge variant="destructive" className="text-[9px] uppercase px-1.5 py-0 rounded font-black">NSFW</Badge>}
                             {post.is_spoiler && <Badge className="text-[9px] bg-yellow-600 text-white uppercase px-1.5 py-0 rounded font-black hover:bg-yellow-600">SPOILER</Badge>}
@@ -657,7 +657,7 @@ export default function PostPage() {
 
                         {post.tags?.length > 0 && (
                             <div className="flex flex-wrap gap-1.5 px-4 mb-2">
-                                {post.tags.map(tag => <Badge key={tag} className="bg-primary/10 text-primary border-0 text-xs rounded-full">#{tag}</Badge>)}
+                                {post.tags.map(tag => <Badge key={tag} className="bg-primary/10 text-primary border-0 text-[10px] rounded-full">#{tag}</Badge>)}
                             </div>
                         )}
 
@@ -676,10 +676,10 @@ export default function PostPage() {
                         ) : (
                             <>
                                 {/* Text content */}
-                                {post.content && <p className="px-4 text-sm text-foreground leading-relaxed mb-3 whitespace-pre-wrap">{post.content}</p>}
+                                {post.content && <div className="px-4 prose-reading mb-4 whitespace-pre-wrap">{post.content}</div>}
 
                                 {post.type === 'video' && post.media_urls?.length > 0 && (
-                                    <div className="mx-4 mb-3 overflow-hidden rounded-xl">
+                                    <div className="mx-4 mb-4 overflow-hidden rounded-xl">
                                         <video src={post.media_urls[0]} controls className="w-full max-h-[500px] bg-black" />
                                     </div>
                                 )}
@@ -724,10 +724,10 @@ export default function PostPage() {
                 </div>
 
                 {/* Divider */}
-                <div className="border-t border-border/40" />
+                <div className="mt-1 border-t border-border/40" />
 
                 {/* Comments header + sort */}
-                <div className="px-4 py-2.5 flex items-center justify-between">
+                <div className="px-4 py-2.5 flex items-center justify-between mt-2">
                     <h3 className="font-bold text-sm flex items-center gap-1.5">
                         <MessageCircle className="w-4 h-4 text-primary" />
                         Комментарии ({comments.length})
@@ -741,12 +741,10 @@ export default function PostPage() {
                     </div>
                 </div>
 
-                {/* Divider */}
-                <div className="border-t border-border/40" />
 
                 {/* Comment input */}
                 {user ? (
-                    <div className="px-4 py-2.5 border-b border-border/40">
+                    <div className="px-4 py-2.5">
                         <div className="flex gap-2.5 items-center">
                             <img src={user.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.email}`} className="w-7 h-7 rounded-full flex-shrink-0" alt="" />
                             <div className="flex-1 flex gap-2">
@@ -755,10 +753,10 @@ export default function PostPage() {
                                     onChange={e => setNewComment(e.target.value)}
                                     onKeyDown={e => e.key === 'Enter' && e.ctrlKey && handleComment()}
                                     placeholder="Написать комментарий..."
-                                    className="text-sm min-h-0 h-9 resize-none flex-1 py-1.5 rounded border-border/50"
+                                    className="text-sm min-h-0 h-9 resize-none flex-1 py-1.5 rounded-md border-border/50"
                                     style={{ minHeight: '36px' }}
                                 />
-                                <Button onClick={handleComment} disabled={!newComment.trim() || submittingComment} size="sm" className="nexus-gradient border-0 text-white rounded shadow-nexus h-9 w-9 p-0 flex-shrink-0">
+                                <Button onClick={handleComment} disabled={!newComment.trim() || submittingComment} size="sm" className="nexus-gradient border-0 text-white rounded-md shadow-nexus h-9 w-9 p-0 flex-shrink-0">
                                     <Send className="w-3.5 h-3.5" />
                                 </Button>
                             </div>

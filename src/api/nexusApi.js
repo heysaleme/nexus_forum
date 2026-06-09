@@ -502,17 +502,18 @@ const nexusApi = {
                 }
 
                 const data = await response.json();
-                let url = data.file_url || data.url;
-                if (url && url.startsWith('/')) {
-                    const origin = BASE_URL.replace(/\/api\/?$/, '');
-                    url = `${origin}${url}`;
-                }
+                const url = data.file_url || data.url;
                 return { file_url: url, mime_type: data.mime_type, filename: data.filename };
             },
         },
     },
     entities: {
-        User: createEntityApi('User', '/users'),
+        User: {
+            ...createEntityApi('User', '/users'),
+            async getStats(id) {
+                return request(`/users/${id}/stats`);
+            },
+        },
         Community: createEntityApi('Community', '/communities'),
         CommunityMember: {
             ...createEntityApi('CommunityMember', '/communities'),
@@ -646,18 +647,11 @@ const nexusApi = {
         },
         Achievement: {
             async filter(filter = {}) {
-                // Mock achievements dynamically based on level/posts
-                const user = await auth.me().catch(() => null);
-                if (!user) return [];
-                const achievements = [];
-                if (user.level >= 3) {
-                    achievements.push({ id: 'ach_1', user_id: user.id, achievement_name: 'community_builder', achievement_description: 'Создатель сообщества', tier: 'gold' });
+                if (filter.user_id) {
+                    return request(`/users/${filter.user_id}/achievements`);
                 }
-                if (user.xp > 20) {
-                    achievements.push({ id: 'ach_2', user_id: user.id, achievement_name: 'first_post', achievement_description: 'Первый пост', tier: 'silver' });
-                }
-                return achievements;
-            }
+                return [];
+            },
         },
         UserFollow: {
             async filter(filter = {}) {

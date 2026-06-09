@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Nunito:wght@400;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -43,9 +43,9 @@ body.chat-fullscreen {
         --radius: 0.95rem;
         --success: 142 71% 45%;
         --warning: 38 92% 50%;
-        --font-heading: 'Nunito', ui-sans-serif, system-ui, sans-serif;
-        --font-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
-        --font-display: 'Nunito', ui-sans-serif, system-ui, sans-serif;
+        --font-heading: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        --font-display: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
         --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
         --sidebar-background: 0 0% 100%;
         --sidebar-foreground: 212 28% 14%;
@@ -140,8 +140,28 @@ body.chat-fullscreen {
     }
 
     .nexus-feed-shell {
-        @apply bg-card border border-border/60 rounded-[1.35rem] overflow-hidden;
+        @apply bg-card border border-border/60 rounded-[1.35rem] overflow-hidden divide-y divide-border/50;
         box-shadow: 0 22px 44px -36px rgba(14, 58, 106, 0.4);
+    }
+
+    .prose-reading {
+        @apply text-[14px] leading-[1.7] text-foreground font-body;
+    }
+
+    .prose-reading p+p {
+        @apply mt-4;
+    }
+
+    .comment-body {
+        @apply text-[14px] leading-[1.65] text-foreground;
+    }
+
+    .chat-message-text {
+        @apply text-[14px] leading-[1.55] break-words;
+    }
+
+    .feed-card-padding {
+        @apply py-1.5 md:py-1;
     }
 
     .nexus-card-hover {

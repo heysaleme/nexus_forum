@@ -14,6 +14,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { validateFileSize, UPLOAD_LIMITS_MB, limitLabelForCategory } from '@/lib/validateFileSize';
 import { useChatLayout } from '@/lib/ChatLayoutContext';
 import { profilePath } from '@/lib/profileLink';
+import { mediaUrl, toRelativeUploadUrl } from '@/lib/mediaUrl';
 import {
     Dialog,
     DialogContent,
@@ -59,16 +60,16 @@ function ChatBubble({ message, isOwn, onEdit, onDelete, canEdit, canDelete }) {
                 {message.attachment_url && message.attachment_type === 'image' && (
                     <div className="mb-1 rounded-lg overflow-hidden border border-white/10 max-w-sm">
                         <img
-                            src={`${nexusApi.BASE_URL.replace('/api', '')}${message.attachment_url}`}
+                            src={mediaUrl(message.attachment_url)}
                             alt=""
                             className="max-h-60 w-full object-cover cursor-pointer hover:scale-102 transition-transform"
-                            onClick={() => window.open(`${nexusApi.BASE_URL.replace('/api', '')}${message.attachment_url}`, '_blank')}
+                            onClick={() => window.open(mediaUrl(message.attachment_url), '_blank')}
                         />
                     </div>
                 )}
                 {message.attachment_url && message.attachment_type !== 'image' && (
                     <a
-                        href={`${nexusApi.BASE_URL.replace('/api', '')}${message.attachment_url}`}
+                        href={mediaUrl(message.attachment_url)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className={`flex items-center gap-2 mb-1 p-2 rounded-xl text-xs border ${isOwn
@@ -81,7 +82,7 @@ function ChatBubble({ message, isOwn, onEdit, onDelete, canEdit, canDelete }) {
                     </a>
                 )}
 
-                <div className="break-words">{message.content}</div>
+                <div className="chat-message-text">{message.content}</div>
                 <div className="text-[9px] opacity-70 self-end flex items-center gap-1 mt-0.5 select-none">
                     {formatTime(message.created_date)}
                     {message.is_edited && <span className="text-[9px] opacity-60 ml-0.5">(изм.)</span>}
@@ -216,7 +217,6 @@ export default function Chats() {
         const ws = new WebSocket(wsUrl, ["Bearer", token]);
 
         ws.onopen = () => {
-            console.log("WebSocket connected to chat room:", selectedRoom.id);
             // Send initial read receipt for the last message in room
             sendInitialReadReceipt(ws);
         };
@@ -227,7 +227,6 @@ export default function Chats() {
 
                 if (msg.type === 'message') {
 
-                    console.log("WS MESSAGE RAW", JSON.stringify(msg, null, 2));
                 }
 
                 if (msg.room_id !== selectedRoom.id && msg.type !== 'online_status') return;
@@ -312,7 +311,6 @@ export default function Chats() {
         };
 
         ws.onclose = () => {
-            console.log("WebSocket connection closed for chat room:", selectedRoom.id);
         };
 
         wsRef.current = ws;
@@ -558,7 +556,7 @@ export default function Chats() {
             const data = await nexusApi.integrations.Core.UploadFile({ file, category: 'chat/attachments' });
             const type = data.mime_type?.startsWith('image/') ? 'image' : 'file';
             setAttachment({
-                url: data.file_url,
+                url: toRelativeUploadUrl(data.file_url),
                 name: data.filename,
                 type: type
             });
@@ -594,8 +592,6 @@ export default function Chats() {
     };
 
     const markRoomAsRead = async (roomId) => {
-        console.log("MARK ROOM READ", roomId);
-
         await nexusApi.entities.ChatRoom.update(roomId, { unread_count: 0 });
         setRooms(prev => prev.map(room => room.id === roomId ? { ...room, unread_count: 0 } : room));
 
@@ -867,7 +863,7 @@ export default function Chats() {
                                 <div className="flex items-center gap-3 p-2 bg-muted/60 rounded-xl mb-2 mx-1 border border-border/40 relative">
                                     <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
                                         {attachment.type === 'image' ? (
-                                            <img src={`${nexusApi.BASE_URL.replace('/api', '')}${attachment.url}`} className="w-10 h-10 rounded-lg object-cover" alt="" />
+                                            <img src={mediaUrl(attachment.url)} className="w-10 h-10 rounded-lg object-cover" alt="" />
                                         ) : (
                                             <FileText className="w-5 h-5 text-primary" />
                                         )}

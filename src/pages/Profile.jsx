@@ -56,6 +56,7 @@ export default function Profile() {
     const [scheduled, setScheduled] = useState([]);
     const [savedPosts, setSavedPosts] = useState([]);
     const [achievements, setAchievements] = useState([]);
+    const [profileStats, setProfileStats] = useState(null);
     const [isFollowing, setIsFollowing] = useState(false);
     const [followStatus, setFollowStatus] = useState('none');
     const [reportOpen, setReportOpen] = useState(false);
@@ -79,12 +80,13 @@ export default function Profile() {
         try {
             const ownProfile = isOwn;
             const authorId = Number(targetId);
-            const [users, userPosts, userDrafts, userScheduled, userAchievements] = await Promise.all([
+            const [users, userPosts, userDrafts, userScheduled, userAchievements, stats] = await Promise.all([
                 nexusApi.entities.User.filter({ id: authorId }),
                 nexusApi.entities.Post.filter({ author_id: authorId, status: 'published' }, '-created_date', 10),
                 ownProfile ? nexusApi.entities.Post.filter({ author_id: authorId, status: 'draft' }, '-created_date', 20) : Promise.resolve([]),
                 ownProfile ? nexusApi.entities.Post.filter({ author_id: authorId, status: 'scheduled' }, '-created_date', 20) : Promise.resolve([]),
                 nexusApi.entities.Achievement.filter({ user_id: authorId }).catch(() => []),
+                nexusApi.entities.User.getStats(authorId).catch(() => null),
             ]);
 
             if (users[0]) setProfileUser(users[0]);
@@ -93,6 +95,7 @@ export default function Profile() {
             setDrafts((userDrafts || []).filter((p) => p?.id));
             setScheduled((userScheduled || []).filter((p) => p?.id));
             setAchievements(userAchievements || []);
+            setProfileStats(stats);
 
             if (!isOwn && currentUser) {
                 try {
@@ -362,6 +365,15 @@ export default function Profile() {
                 </button>
             </div>
 
+            {profileStats && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 px-4 py-3 border-b border-border/30 text-center">
+                    <div><span className="text-sm font-black block">{profileStats.posts_count ?? 0}</span><span className="text-[10px] text-muted-foreground">постов</span></div>
+                    <div><span className="text-sm font-black block">{profileStats.comments_count ?? 0}</span><span className="text-[10px] text-muted-foreground">комментариев</span></div>
+                    <div><span className="text-sm font-black block">{profileStats.communities_count ?? 0}</span><span className="text-[10px] text-muted-foreground">сообществ</span></div>
+                    <div><span className="text-sm font-black block">{isOwn ? (profileStats.saved_count ?? 0) : (profileStats.achievements_count ?? achievements.length)}</span><span className="text-[10px] text-muted-foreground">{isOwn ? 'сохранено' : 'достижений'}</span></div>
+                </div>
+            )}
+
             {/* Followers modal */}
             <FollowersModal
                 open={followersModalOpen}
@@ -386,13 +398,13 @@ export default function Profile() {
                     <Tabs value={activeTab} onValueChange={(tab) => setSearchParams(tab === 'posts' ? {} : { tab })}>
                         <TabsList className="bg-muted/50 rounded-xl p-1 mb-3 w-full">
                             {[
-                                { value: 'posts', icon: FileText, label: `Посты (${posts.length})` },
+                                { value: 'posts', icon: FileText, label: `Посты (${profileStats?.posts_count ?? posts.length})` },
                                 ...(isOwn ? [
                                     { value: 'drafts', icon: FileText, label: `Черновики (${drafts.length})` },
                                     { value: 'scheduled', icon: Clock, label: `Отложенные (${scheduled.length})` },
-                                    { value: 'saved', icon: Bookmark, label: 'Сохранённые' },
+                                    { value: 'saved', icon: Bookmark, label: `Сохранённые (${profileStats?.saved_count ?? savedPosts.length})` },
                                 ] : []),
-                                { value: 'achievements', icon: Trophy, label: 'Достижения' },
+                                { value: 'achievements', icon: Trophy, label: `Достижения (${profileStats?.achievements_count ?? achievements.length})` },
                             ].map(({ value, icon: Icon, label }) => (
                                 <TabsTrigger key={value} value={value} className="rounded-lg text-xs gap-1.5 flex-1 px-2">
                                     <Icon className="w-3.5 h-3.5 shrink-0" />

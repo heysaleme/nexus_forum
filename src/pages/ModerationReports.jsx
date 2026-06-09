@@ -1,16 +1,31 @@
 import { useState, useEffect } from 'react';
 import { nexusApi } from '@/api/nexusApi';
 import { useAuth } from '@/lib/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Shield, AlertTriangle, CheckCircle, ChevronDown, ChevronUp, User, MessageCircle, FileText } from 'lucide-react';
+import { Shield, AlertTriangle, CheckCircle, ChevronDown, ChevronUp, User, MessageCircle, FileText, ExternalLink } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/components/ui/use-toast';
+import { profilePath } from '@/lib/profileLink';
+
+function targetLink(report) {
+    if (!report?.target_type || !report?.target_id) return null;
+    switch (report.target_type) {
+        case 'post':
+            return `/post/${report.target_id}`;
+        case 'comment':
+            return report.post_id ? `/post/${report.post_id}#comment-${report.target_id}` : null;
+        case 'user':
+            return `/user/${report.target_id}`;
+        default:
+            return null;
+    }
+}
 
 export default function ModerationReports() {
     const { user } = useAuth();
@@ -20,10 +35,8 @@ export default function ModerationReports() {
     const [loading, setLoading] = useState(true);
     const [filterStatus, setFilterStatus] = useState('all');
     const [filterType, setFilterType] = useState('all');
-    
-    // Track expanded reports
     const [expandedReportId, setExpandedReportId] = useState(null);
-    const [modResponses, setModResponses] = useState({}); // id -> string
+    const [modResponses, setModResponses] = useState({});
     const [submittingId, setSubmittingId] = useState(null);
 
     useEffect(() => {
@@ -106,7 +119,6 @@ export default function ModerationReports() {
 
     return (
         <div className="max-w-4xl mx-auto px-4 py-4">
-            {/* Header */}
             <div className="flex items-center gap-2 mb-5">
                 <div className="w-9 h-9 bg-primary/10 rounded-xl flex items-center justify-center">
                     <Shield className="w-5 h-5 text-primary" />
@@ -117,7 +129,6 @@ export default function ModerationReports() {
                 </div>
             </div>
 
-            {/* Filters */}
             <div className="nexus-card p-4 mb-4 flex flex-col sm:flex-row gap-3">
                 <div className="flex-1">
                     <Label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Статус</Label>
@@ -149,17 +160,16 @@ export default function ModerationReports() {
                 </div>
             </div>
 
-            {/* Reports List */}
             <div className="space-y-3">
                 {filteredReports.length === 0 ? (
                     <div className="nexus-card p-8 text-center">
                         <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-2" />
                         <p className="text-sm font-bold text-foreground">Нет жалоб по выбранным фильтрам</p>
-                        <p className="text-xs text-muted-foreground">Отличная работа по поддержанию порядка!</p>
                     </div>
                 ) : (
                     filteredReports.map(report => {
                         const isExpanded = expandedReportId === report.id;
+                        const href = targetLink(report);
                         return (
                             <motion.div
                                 key={report.id}
@@ -177,7 +187,6 @@ export default function ModerationReports() {
                                                 {getTargetIcon(report.target_type)}
                                                 <span className="capitalize">{report.target_type}</span>
                                             </Badge>
-                                            <span className="text-[10px] text-muted-foreground">ID цели: {report.target_id}</span>
                                             {report.created_date && (
                                                 <span className="text-[10px] text-muted-foreground">
                                                     {new Date(report.created_date).toLocaleString()}
@@ -188,11 +197,27 @@ export default function ModerationReports() {
                                             <p className="text-xs font-semibold text-foreground truncate">Объект: {report.target_summary}</p>
                                         )}
                                         <p className="text-sm font-bold truncate">Причина: {report.reason}</p>
-                                        {report.description && (
-                                            <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{report.description}</p>
-                                        )}
-                                        <div className="flex items-center gap-1.5 mt-1 text-[10px] text-muted-foreground">
-                                            <span>Отправитель: @{report.reporter_username}</span>
+                                        <div className="flex flex-wrap items-center gap-2 mt-1 text-[10px] text-muted-foreground">
+                                            <span>Отправитель:</span>
+                                            <Link
+                                                to={profilePath(report.reporter_id, user?.id)}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="font-semibold text-primary hover:underline"
+                                            >
+                                                @{report.reporter_username}
+                                            </Link>
+                                            {report.target_username && (
+                                                <>
+                                                    <span>· Объект пользователя:</span>
+                                                    <Link
+                                                        to={profilePath(report.target_user_id, user?.id)}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        className="font-semibold text-primary hover:underline"
+                                                    >
+                                                        @{report.target_username}
+                                                    </Link>
+                                                </>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="flex-shrink-0">
@@ -209,7 +234,18 @@ export default function ModerationReports() {
                                             className="border-t border-border/30 bg-muted/10"
                                         >
                                             <div className="p-4 space-y-4">
-                                                {/* Details */}
+                                                {href && (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="rounded-xl text-xs gap-1.5"
+                                                        onClick={() => navigate(href)}
+                                                    >
+                                                        <ExternalLink className="w-3.5 h-3.5" />
+                                                        Открыть {report.target_type === 'post' ? 'пост' : report.target_type === 'comment' ? 'комментарий' : 'профиль'}
+                                                    </Button>
+                                                )}
+
                                                 <div className="space-y-2">
                                                     <div>
                                                         <Label className="text-xs font-semibold text-muted-foreground">Описание жалобы</Label>
@@ -217,7 +253,6 @@ export default function ModerationReports() {
                                                             {report.description || 'Описание не предоставлено.'}
                                                         </p>
                                                     </div>
-                                                    
                                                     {report.moderator_response && (
                                                         <div>
                                                             <Label className="text-xs font-semibold text-muted-foreground">Ответ модератора</Label>
@@ -228,11 +263,10 @@ export default function ModerationReports() {
                                                     )}
                                                 </div>
 
-                                                {/* Action form (only for pending reports) */}
                                                 {report.status === 'pending' && (
                                                     <div className="space-y-3 pt-2 border-t border-border/20">
                                                         <div>
-                                                            <Label className="text-xs font-semibold text-muted-foreground mb-1 block">Ответ модератора (будет отправлен пользователю)</Label>
+                                                            <Label className="text-xs font-semibold text-muted-foreground mb-1 block">Ответ модератора</Label>
                                                             <Textarea
                                                                 value={modResponses[report.id] || ''}
                                                                 onChange={e => handleResponseChange(report.id, e.target.value)}
@@ -245,7 +279,7 @@ export default function ModerationReports() {
                                                             <Button
                                                                 onClick={() => handleAction(report.id, 'resolved')}
                                                                 disabled={submittingId === report.id || !(modResponses[report.id] || '').trim()}
-                                                                className="flex-1 h-8 rounded-xl bg-green-600 hover:bg-green-700 text-white text-xs font-bold border-0 shadow-sm"
+                                                                className="flex-1 h-8 rounded-xl bg-green-600 hover:bg-green-700 text-white text-xs font-bold border-0"
                                                             >
                                                                 Принять и наказать
                                                             </Button>
@@ -253,7 +287,7 @@ export default function ModerationReports() {
                                                                 onClick={() => handleAction(report.id, 'rejected')}
                                                                 disabled={submittingId === report.id}
                                                                 variant="outline"
-                                                                className="flex-1 h-8 rounded-xl text-xs font-bold border-border"
+                                                                className="flex-1 h-8 rounded-xl text-xs font-bold"
                                                             >
                                                                 Отклонить
                                                             </Button>

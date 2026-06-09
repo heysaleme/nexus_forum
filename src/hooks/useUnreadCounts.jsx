@@ -72,9 +72,7 @@ export default function useUnreadCounts(user) {
                     }
                 };
 
-                ws.onclose = () => {
-                    console.log("Global WebSocket connection closed");
-                };
+                ws.onclose = () => {};
             } catch (err) {
                 console.error("Failed to connect to global WS:", err);
             }

@@ -122,7 +122,7 @@ export default function PostCard({ post, currentUser: propUser, onVote, onDelete
     return (
         <div
             onClick={() => navigate(`/post/${post.id}`)}
-            className="bg-card border-b border-border/40 cursor-pointer hover:bg-muted/20 transition-colors"
+            className="bg-card feed-card-padding cursor-pointer hover:bg-muted/20 transition-colors"
         >
             {/* Header */}
             <div className="flex items-center gap-2 px-5 pt-4 pb-2">
@@ -153,11 +153,11 @@ export default function PostCard({ post, currentUser: propUser, onVote, onDelete
                     {post.author_username}
                 </Link>
 
-                <span className="text-muted-foreground text-xs ml-auto">{ago} назад</span>
+                <span className="text-muted-foreground text-[10px] ml-auto">{ago} назад</span>
             </div>
 
             {/* Title + content — both clickable via parent div */}
-            <h3 className="px-5 text-[15px] font-bold text-foreground leading-snug line-clamp-2 mb-1.5 flex items-center gap-1.5 flex-wrap">
+            <h3 className="px-5 pt-1 text-[14px] font-bold text-foreground leading-snug line-clamp-2 mb-2 flex items-center gap-1.5 flex-wrap">
                 {post.title}
                 {post.is_nsfw && <Badge variant="destructive" className="text-[9px] uppercase px-1.5 py-0 rounded font-black">NSFW</Badge>}
                 {post.is_spoiler && <Badge className="text-[9px] bg-yellow-600 text-white uppercase px-1.5 py-0 rounded font-black hover:bg-yellow-600">SPOILER</Badge>}
@@ -186,19 +186,19 @@ export default function PostCard({ post, currentUser: propUser, onVote, onDelete
             ) : (
                 <>
                     {post.content && (
-                        <p className="px-5 text-[13px] text-muted-foreground line-clamp-2 leading-relaxed mb-2.5">
+                        <p className="px-5 text-[12px] text-foreground/85 line-clamp-3 leading-[1.65] mb-3">
                             {post.content}
                         </p>
                     )}
 
                     {mediaUrls.length > 0 && post.type === 'video' && (
-                        <div className="mt-2 mx-5 overflow-hidden rounded-xl">
+                        <div className="mt-6 mx-6 overflow-hidden rounded-xl">
                             <video src={mediaUrls[0]} controls className="w-full max-h-64 bg-black" />
                         </div>
                     )}
 
                     {mediaUrls.length > 0 && post.type !== 'video' && (
-                        <div className={`mt-2 mx-5 overflow-hidden rounded-xl ${mediaUrls.length > 1 ? 'grid grid-cols-2 gap-0.5' : ''}`}>
+                        <div className={`mt-6 mx-6 overflow-hidden rounded-xl ${mediaUrls.length > 1 ? 'grid grid-cols-2 gap-0.5' : ''}`}>
                             {mediaUrls.slice(0, 4).map((url, i) => (
                                 <div key={i} className="relative">
                                     <img src={url} alt="" className="w-full object-cover max-h-64" />
@@ -230,29 +230,29 @@ export default function PostCard({ post, currentUser: propUser, onVote, onDelete
 
                     {/* Poll preview in card */}
                     {post.type === 'poll' && pollOptions.length > 0 && (
-                            <div className="px-5 mt-2 mb-1 space-y-1.5">
-                                {pollOptions.slice(0, 3).map((opt, i) => (
-                                    <div key={i} className="flex items-center gap-2 bg-muted/30 border border-border/40 rounded-lg px-3 py-1.5">
-                                        <div className="w-3 h-3 rounded-full border-2 border-primary/50 flex-shrink-0" />
-                                        <span className="text-xs font-medium">
-                                            {typeof opt === 'string' ? opt : opt.text}
-                                        </span>
-                                        <span className="text-xs text-muted-foreground ml-auto">
-                                            {typeof opt === 'object' ? (opt.votes || 0) : 0}
-                                        </span>
-                                    </div>
-                                ))}
-                                {pollOptions.length > 3 && (
-                                    <p className="text-xs text-muted-foreground pl-1">+{pollOptions.length - 3} вариантов</p>
-                                )}
-                            </div>
-                        )}
+                        <div className="px-5 mt-4 mb-1 space-y-1.5">
+                            {pollOptions.slice(0, 3).map((opt, i) => (
+                                <div key={i} className="flex items-center gap-2 bg-muted/30 border border-border/40 rounded-lg px-3 py-1.5">
+                                    <div className="w-3 h-3 rounded-full border-2 border-primary/50 flex-shrink-0" />
+                                    <span className="text-xs font-medium">
+                                        {typeof opt === 'string' ? opt : opt.text}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground ml-auto">
+                                        {typeof opt === 'object' ? (opt.votes || 0) : 0}
+                                    </span>
+                                </div>
+                            ))}
+                            {pollOptions.length > 3 && (
+                                <p className="text-xs text-muted-foreground pl-1">+{pollOptions.length - 3} вариантов</p>
+                            )}
+                        </div>
+                    )}
                 </>
             )}
 
 
             {/* Actions */}
-            <div className="flex items-center gap-1.5 px-4 py-3" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-1.5 px-4 py-4 mt-4" onClick={e => e.stopPropagation()}>
                 {/* Vote */}
                 <div className="flex items-center bg-muted/50 rounded overflow-hidden">
                     <button
