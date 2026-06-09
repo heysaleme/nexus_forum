@@ -11,7 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -19,6 +18,7 @@ import (
 
 	"nexus-forum-backend/internal/config"
 	"nexus-forum-backend/internal/database"
+	"nexus-forum-backend/internal/demo"
 	"nexus-forum-backend/internal/email"
 	"nexus-forum-backend/internal/handler"
 	"nexus-forum-backend/internal/search"
@@ -126,8 +126,8 @@ func main() {
 	logger.Info("database auto-migrations complete")
 	database.PurgeLegacyBase64Media(db)
 
-	// 5. Seed Demo Data if empty
-	seedDemoData(db)
+	// 5. Seed minimal demo data if empty
+	seedDemoDataIfEmpty(db)
 
 	// 6. Initialize layers
 	userRepo := repository.NewUserRepository(db)
@@ -266,6 +266,8 @@ func main() {
 		usersPublic.Use(middleware.OptionalAuthMiddleware(authService))
 		usersPublic.GET("/users", handlers.ListUsers)
 		usersPublic.GET("/users/:id", handlers.GetUserByID)
+		usersPublic.GET("/users/:id/stats", handlers.GetUserProfileStats)
+		usersPublic.GET("/users/:id/achievements", handlers.GetUserAchievements)
 		usersPublic.GET("/users/:id/followers", handlers.GetFollowers)
 		usersPublic.GET("/users/:id/following", handlers.GetFollowing)
 
@@ -439,241 +441,14 @@ func CORSMiddleware() gin.HandlerFunc {
 	}
 }
 
-func seedDemoData(db *gorm.DB) {
+func seedDemoDataIfEmpty(db *gorm.DB) {
 	var userCount int64
 	db.Model(&model.User{}).Count(&userCount)
 	if userCount > 0 {
 		return
 	}
-
-	log.Println("Seeding initial database demo records...")
-
-	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
-	passStr := string(hashedPassword)
-
-	// Users
-	user1 := model.User{
-		Username:       "amira",
-		Email:          "amira@example.com",
-		PasswordHash:   passStr,
-		AvatarURL:      "",
-		BannerURL:      "",
-		Bio:            "Люблю аниме, интерфейсы и аккуратный фронтенд.",
-		Role:           "admin",
-		Level:          5,
-		XP:             430,
-		Title:          "Frontend Builder",
-		ProfileTheme:   "sunset",
-		FollowersCount: 12,
-		FollowingCount: 5,
-		AllowDMs:       true,
+	log.Println("Seeding minimal demo database...")
+	if err := demo.ResetMinimalDemo(db); err != nil {
+		log.Printf("demo seed failed: %v", err)
 	}
-
-	user2 := model.User{
-		Username:       "kaizer",
-		Email:          "kai@example.com",
-		PasswordHash:   passStr,
-		AvatarURL:      "",
-		BannerURL:      "",
-		Bio:            "Собираю фанатские сообщества и пишу посты.",
-		Role:           "user",
-		Level:          3,
-		XP:             240,
-		Title:          "Community Mod",
-		ProfileTheme:   "ocean",
-		FollowersCount: 3,
-		FollowingCount: 8,
-		AllowDMs:       true,
-	}
-
-	user3 := model.User{
-		Username:       "moduser",
-		Email:          "moderator@example.com",
-		PasswordHash:   passStr,
-		AvatarURL:      "",
-		BannerURL:      "",
-		Bio:            "Официальный модератор платформы Nexus Forum.",
-		Role:           "moderator",
-		Level:          4,
-		XP:             320,
-		Title:          "Platform Moderator",
-		ProfileTheme:   "forest",
-		FollowersCount: 8,
-		FollowingCount: 4,
-		AllowDMs:       true,
-	}
-
-	db.Create(&user1)
-	db.Create(&user2)
-	db.Create(&user3)
-
-	// Communities
-	comm1 := model.Community{
-		Name:        "Nexus Anime",
-		Slug:        "nexus-anime",
-		Description: "Обсуждаем аниме, мангу и любимые фандомы.",
-		Visibility:  "public",
-		OwnerID:     user1.ID,
-		MemberCount: 2,
-		PostCount:   1,
-		Rules:       `[{"title":"Уважение","description":"Без токсичности и оскорблений."}]`,
-	}
-
-	comm2 := model.Community{
-		Name:        "UI Workshop",
-		Slug:        "ui-workshop",
-		Description: "Разбор интерфейсов, анимаций и продуктового дизайна.",
-		Visibility:  "public",
-		OwnerID:     user2.ID,
-		MemberCount: 2,
-		PostCount:   1,
-		Rules:       `[{"title":"Конструктив","description":"Критикуем бережно и по делу."}]`,
-	}
-
-	comm3 := model.Community{
-		Name:        "Roleplay Hub",
-		Slug:        "roleplay-hub",
-		Description: "Поиск игроков, сюжетов и вселенных для ролевых игр.",
-		Visibility:  "public",
-		OwnerID:     user1.ID,
-		MemberCount: 1,
-		PostCount:   1,
-		Rules:       `[{"title":"18+","description":"Возрастные ограничения указываем явно."}]`,
-	}
-
-	db.Create(&comm1)
-	db.Create(&comm2)
-	db.Create(&comm3)
-
-	// Members
-	db.Create(&model.CommunityMember{UserID: user1.ID, CommunityID: comm1.ID, Role: "owner"})
-	db.Create(&model.CommunityMember{UserID: user2.ID, CommunityID: comm1.ID, Role: "member"})
-	db.Create(&model.CommunityMember{UserID: user2.ID, CommunityID: comm2.ID, Role: "owner"})
-	db.Create(&model.CommunityMember{UserID: user1.ID, CommunityID: comm2.ID, Role: "member"})
-	db.Create(&model.CommunityMember{UserID: user1.ID, CommunityID: comm3.ID, Role: "owner"})
-
-	// Posts
-	post1 := model.Post{
-		CommunityID:  comm2.ID,
-		AuthorID:     user1.ID,
-		Title:        "Как вам новый дизайн ленты?",
-		Content:      "Собрала первый рабочий вариант локального форума. Хочется понять, где интерфейс уже хорош, а где еще сырой.",
-		Type:         "text",
-		Score:        18,
-		Upvotes:      18,
-		CommentCount: 2,
-		Status:       "published",
-		Tags:         `["ui","feedback"]`,
-		MediaUrls:    `[]`,
-	}
-
-	post2 := model.Post{
-		CommunityID:  comm1.ID,
-		AuthorID:     user2.ID,
-		Title:        "Топ аниме-сообществ для новичков",
-		Content:      "Сделала подборку дружелюбных тредов, где комфортно начинать общение и не бояться задавать вопросы.",
-		Type:         "text",
-		Score:        9,
-		Upvotes:      10,
-		Downvotes:    1,
-		CommentCount: 1,
-		Status:       "published",
-		Tags:         `["anime","guide"]`,
-		MediaUrls:    `[]`,
-	}
-
-	post3 := model.Post{
-		CommunityID: comm3.ID,
-		AuthorID:    user1.ID,
-		Title:       "Ищу игроков для sci-fi RP",
-		Content:     "Нужны 2-3 человека в мягкую сюжетную космооперу с упором на персонажей.",
-		Type:        "text",
-		Score:       6,
-		Upvotes:     7,
-		Downvotes:   1,
-		Status:      "published",
-		Tags:        `["rp","sci-fi"]`,
-		MediaUrls:   `[]`,
-	}
-
-	db.Create(&post1)
-	db.Create(&post2)
-	db.Create(&post3)
-
-	// Comments
-	comment1 := model.Comment{
-		PostID:    post1.ID,
-		AuthorID:  user2.ID,
-		Content:   "Мне нравится структура. Особенно хорошо сработала правая колонка с сообществами.",
-		Score:     4,
-		CreatedAt: time.Now().Add(-40 * time.Minute),
-	}
-	db.Create(&comment1)
-
-	comment2 := model.Comment{
-		PostID:    post1.ID,
-		ParentID:  &comment1.ID,
-		AuthorID:  user1.ID,
-		Content:   "Спасибо, хочу еще доработать пустые состояния и onboarding.",
-		Score:     2,
-		CreatedAt: time.Now().Add(-20 * time.Minute),
-	}
-	db.Create(&comment2)
-
-	comment3 := model.Comment{
-		PostID:    post2.ID,
-		AuthorID:  user1.ID,
-		Content:   "Добавь еще раздел с рекомендациями по жанрам.",
-		Score:     3,
-		CreatedAt: time.Now().Add(-75 * time.Minute),
-	}
-	db.Create(&comment3)
-
-	// Follow
-	db.Create(&model.UserFollow{FollowerID: user2.ID, FollowingID: user1.ID})
-
-	// Saved Posts
-	db.Create(&model.SavedPost{UserID: user1.ID, PostID: post2.ID})
-
-	// Notifications
-	db.Create(&model.Notification{
-		UserID: user1.ID,
-		Type:   "reply",
-		Title:  "Новый ответ",
-		Body:   "Kai ответил на ваш комментарий.",
-		IsRead: false,
-	})
-	db.Create(&model.Notification{
-		UserID: user1.ID,
-		Type:   "follow",
-		Title:  "Новый подписчик",
-		Body:   "Kai подписался на ваш профиль.",
-		IsRead: true,
-	})
-
-	// Chat Room
-	pBytes, _ := json.Marshal([]uint{user1.ID, user2.ID})
-	room := model.ChatRoom{
-		Name:         "Amira & Kai",
-		Type:         "direct",
-		Participants: string(pBytes),
-		LastMessage:  "Сделала локальный REST-сервер на Go!",
-	}
-	db.Create(&room)
-
-	// Messages
-	db.Create(&model.Message{
-		ChatRoomID:     room.ID,
-		SenderID:       user2.ID,
-		SenderUsername: user2.Username,
-		Content:        "Какой следующий шаг по проекту?",
-		IsRead:         true,
-	})
-	db.Create(&model.Message{
-		ChatRoomID:     room.ID,
-		SenderID:       user1.ID,
-		SenderUsername: user1.Username,
-		Content:        "Сделала локальный REST-сервер на Go!",
-		IsRead:         false,
-	})
 }

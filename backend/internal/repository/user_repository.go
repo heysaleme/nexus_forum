@@ -17,6 +17,8 @@ type UserRepository interface {
 	Update(user *model.User) error
 	List(sortSpec string, limit int) ([]*model.User, error)
 	Search(query string, limit int) ([]*model.User, error)
+	GetProfileStats(userID uint) (*ProfileStats, error)
+	SyncFollowCounts(userID uint) error
 }
 
 type userRepository struct {

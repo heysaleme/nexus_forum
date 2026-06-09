@@ -652,6 +652,39 @@ func TestAnalyticsService_TrackAndDashboard(t *testing.T) {
 	}
 }
 
+func TestUserService_ProfileStats(t *testing.T) {
+	db := setupDB(t)
+	userRepo := repository.NewUserRepository(db)
+	followRepo := repository.NewFollowRepository(db)
+	notifRepo := repository.NewNotificationRepository(db)
+	modRepo := repository.NewModerationRepository(db)
+	userSvc := service.NewUserService(userRepo, followRepo, notifRepo, modRepo)
+	commRepo := repository.NewCommunityRepository(db)
+	postRepo := repository.NewPostRepository(db)
+	commentRepo := repository.NewCommentRepository(db)
+
+	u1 := &model.User{Username: "stats1", Email: "s1@example.com", PasswordHash: "h", ProfileTheme: "default"}
+	u2 := &model.User{Username: "stats2", Email: "s2@example.com", PasswordHash: "h", ProfileTheme: "default"}
+	_ = userRepo.Create(u1)
+	_ = userRepo.Create(u2)
+	comm := &model.Community{Name: "Stats", Slug: "stats", OwnerID: u1.ID, Visibility: "public"}
+	_ = commRepo.Create(comm)
+	_ = commRepo.AddMember(&model.CommunityMember{UserID: u1.ID, CommunityID: comm.ID, Role: "owner"})
+	post := &model.Post{CommunityID: comm.ID, AuthorID: u1.ID, Title: "P", Type: "text", Status: "published", MediaUrls: "[]", Tags: "[]"}
+	_ = postRepo.Create(post)
+	_ = commentRepo.Create(&model.Comment{PostID: post.ID, AuthorID: u2.ID, Content: "hi"})
+	_ = followRepo.Follow(&model.UserFollow{FollowerID: u2.ID, FollowingID: u1.ID, Status: "accepted"})
+	_ = userRepo.SyncFollowCounts(u1.ID)
+
+	stats, err := userSvc.GetProfileStats(u1.ID)
+	if err != nil {
+		t.Fatalf("GetProfileStats: %v", err)
+	}
+	if stats.FollowersCount != 1 || stats.PostsCount != 1 || stats.CommunitiesCount != 1 {
+		t.Fatalf("unexpected stats: %+v", stats)
+	}
+}
+
 func TestCommentService_CreatesNotifications(t *testing.T) {
 	db := setupDB(t)
 	userRepo := repository.NewUserRepository(db)

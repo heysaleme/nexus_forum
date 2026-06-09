@@ -23,6 +23,8 @@ type UserService interface {
 	GetPendingFollowRequests(userID uint) ([]*model.User, error)
 	GetFollowRecord(followerID, followingID uint) (*model.UserFollow, error)
 	Search(query string, limit int) ([]*model.User, error)
+	GetProfileStats(userID uint) (*repository.ProfileStats, error)
+	GetAchievements(userID uint) ([]Achievement, error)
 }
 
 type userService struct {
@@ -47,7 +49,24 @@ func NewUserService(
 }
 
 func (s *userService) GetByID(id uint) (*model.User, error) {
+	_ = s.repo.SyncFollowCounts(id)
 	return s.repo.GetByID(id)
+}
+
+func (s *userService) GetProfileStats(userID uint) (*repository.ProfileStats, error) {
+	return s.repo.GetProfileStats(userID)
+}
+
+func (s *userService) GetAchievements(userID uint) ([]Achievement, error) {
+	stats, err := s.repo.GetProfileStats(userID)
+	if err != nil {
+		return nil, err
+	}
+	user, err := s.repo.GetByID(userID)
+	if err != nil {
+		return nil, err
+	}
+	return computeAchievements(userID, stats, stats.CommunitiesOwned, user.Level, user.XP), nil
 }
 
 func (s *userService) GetByIDs(ids []uint) (map[uint]*model.User, error) {

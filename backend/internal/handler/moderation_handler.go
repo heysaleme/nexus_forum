@@ -301,11 +301,19 @@ func (h *Handlers) GetReports(c *gin.Context) {
 			"moderator_response": report.ModeratorResponse,
 			"created_date":       report.CreatedAt,
 			"target_summary":     "",
+			"target_username":    "",
+			"target_user_id":     uint(0),
+			"post_id":            uint(0),
 		}
 		switch report.TargetType {
 		case "post":
 			if post, err := h.PostService.GetByID(report.TargetID); err == nil {
 				item["target_summary"] = post.Title
+				item["target_user_id"] = post.AuthorID
+				item["post_id"] = post.ID
+				if author, err := h.UserService.GetByID(post.AuthorID); err == nil {
+					item["target_username"] = author.Username
+				}
 			}
 		case "comment":
 			if comment, err := h.CommentService.GetByID(report.TargetID); err == nil {
@@ -314,10 +322,17 @@ func (h *Handlers) GetReports(c *gin.Context) {
 					summary = summary[:120] + "…"
 				}
 				item["target_summary"] = summary
+				item["target_user_id"] = comment.AuthorID
+				item["post_id"] = comment.PostID
+				if author, err := h.UserService.GetByID(comment.AuthorID); err == nil {
+					item["target_username"] = author.Username
+				}
 			}
 		case "user":
 			if u, err := h.UserService.GetByID(report.TargetID); err == nil {
 				item["target_summary"] = u.Username
+				item["target_user_id"] = u.ID
+				item["target_username"] = u.Username
 			}
 		}
 		enriched = append(enriched, item)

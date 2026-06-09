@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"nexus-forum-backend/internal/model"
+	"nexus-forum-backend/internal/service"
 )
 
 func viewerCanSeeModerationFields(c *gin.Context, targetUserID uint) bool {
@@ -79,6 +80,35 @@ func (h *Handlers) GetUserByID(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, user)
+}
+
+func (h *Handlers) GetUserProfileStats(c *gin.Context) {
+	id, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	stats, err := h.UserService.GetProfileStats(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+	c.JSON(http.StatusOK, stats)
+}
+
+func (h *Handlers) GetUserAchievements(c *gin.Context) {
+	id, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	items, err := h.UserService.GetAchievements(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+	if items == nil {
+		items = []service.Achievement{}
+	}
+	c.JSON(http.StatusOK, items)
 }
 
 func (h *Handlers) Follow(c *gin.Context) {

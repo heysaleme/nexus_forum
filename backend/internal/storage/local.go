@@ -52,7 +52,7 @@ func (s *LocalStore) Put(ctx context.Context, key string, reader io.Reader, _ in
 		return "", err
 	}
 
-	return fmt.Sprintf("%s/uploads/%s", s.publicURL, key), nil
+	return "/uploads/" + key, nil
 }
 
 // SafeObjectKey builds a unique object key under a category prefix.
