@@ -2,7 +2,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ArrowUp, ArrowDown, MessageCircle, Share2, Bookmark, Eye, Trash2, Pin, Flag } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { nexusApi } from '@/api/nexusApi';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { truncatePreview } from '@/lib/truncatePreview';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/lib/AuthContext';
 import { profilePath, sameUserId } from '@/lib/profileLink';
@@ -52,6 +53,17 @@ export default function PostCard({ post, currentUser: propUser, onVote, onDelete
     const [score, setScore] = useState(post.score || 0);
     const [saved, setSaved] = useState(false);
     const [revealed, setRevealed] = useState(false);
+    const [previewLimit, setPreviewLimit] = useState(250);
+
+    useEffect(() => {
+        const mq = window.matchMedia('(max-width: 639px)');
+        const update = () => setPreviewLimit(mq.matches ? 180 : 250);
+        update();
+        mq.addEventListener('change', update);
+        return () => mq.removeEventListener('change', update);
+    }, []);
+
+    const contentPreview = post.content ? truncatePreview(post.content, previewLimit) : '';
     const handleVote = async (e, value) => {
         e.stopPropagation();
 
@@ -185,9 +197,9 @@ export default function PostCard({ post, currentUser: propUser, onVote, onDelete
                 </div>
             ) : (
                 <>
-                    {post.content && (
-                        <p className="px-5 text-[12px] text-foreground/85 line-clamp-3 leading-[1.65] mb-3">
-                            {post.content}
+                    {contentPreview && (
+                        <p className="px-5 text-[12px] text-foreground/85 leading-[1.65] mb-3 whitespace-pre-wrap break-words">
+                            {contentPreview}
                         </p>
                     )}
 

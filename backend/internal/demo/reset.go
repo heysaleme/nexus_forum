@@ -114,6 +114,13 @@ func ResetMinimalDemo(db *gorm.DB) error {
 		_ = db.Model(&model.User{}).Where("id = ?", uid).Updates(map[string]interface{}{"followers_count": followers, "following_count": following})
 	}
 
+	// Sync post comment counts (includes replies; matches post page comment list length)
+	for i := range posts {
+		var commentCount int64
+		_ = db.Model(&model.Comment{}).Where("post_id = ?", posts[i].ID).Count(&commentCount)
+		_ = db.Model(&model.Post{}).Where("id = ?", posts[i].ID).UpdateColumn("comment_count", commentCount)
+	}
+
 	log.Println("demo database reset to minimal dataset complete")
 	return nil
 }

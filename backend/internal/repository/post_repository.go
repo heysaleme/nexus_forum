@@ -85,7 +85,7 @@ func escapeLikePattern(s string) string {
 
 func (r *postRepository) List(sortSpec string, limit int, viewerID uint) ([]*model.Post, error) {
 	var posts []*model.Post
-	q := r.db.Omit("content").Where("status = ?", "published").Order(parsePostSort(r.db.Dialector.Name(), sortSpec))
+	q := r.db.Where("status = ?", "published").Order(parsePostSort(r.db.Dialector.Name(), sortSpec))
 	q = r.applyShadowFilter(q, viewerID)
 	if limit > 0 {
 		q = q.Limit(limit)
@@ -103,8 +103,7 @@ func (r *postRepository) ListByCommunityMembership(userID uint, sortSpec string,
 		Select("community_id").
 		Where("user_id = ?", userID)
 
-	q := r.db.Omit("content").
-		Where("status = ?", "published").
+	q := r.db.Where("status = ?", "published").
 		Where("community_id IN (?)", communitySubquery).
 		Order(parsePostSort(r.db.Dialector.Name(), sortSpec))
 	q = r.applyShadowFilter(q, viewerID)
@@ -124,8 +123,7 @@ func (r *postRepository) ListByFollowing(followerID uint, sortSpec string, limit
 		Select("following_id").
 		Where("follower_id = ? AND status = ?", followerID, "accepted")
 
-	q := r.db.Omit("content").
-		Where("status = ?", "published").
+	q := r.db.Where("status = ?", "published").
 		Where("author_id IN (?)", followingSubquery).
 		Order(parsePostSort(r.db.Dialector.Name(), sortSpec))
 	q = r.applyShadowFilter(q, viewerID)
@@ -141,7 +139,7 @@ func (r *postRepository) ListByFollowing(followerID uint, sortSpec string, limit
 
 func (r *postRepository) Filter(filter map[string]interface{}, sortSpec string, limit int, viewerID uint) ([]*model.Post, error) {
 	var posts []*model.Post
-	q := r.db.Omit("content").Where(filter).Order(parsePostSort(r.db.Dialector.Name(), sortSpec))
+	q := r.db.Where(filter).Order(parsePostSort(r.db.Dialector.Name(), sortSpec))
 	q = r.applyShadowFilter(q, viewerID)
 	if limit > 0 {
 		q = q.Limit(limit)
@@ -171,7 +169,7 @@ func (r *postRepository) Search(query string, limit int, viewerID uint) ([]*mode
 		return posts, nil
 	}
 
-	q := r.db.Omit("content").Where("status = ? AND id IN ?", "published", ids)
+	q := r.db.Where("status = ? AND id IN ?", "published", ids)
 	q = r.applyShadowFilter(q, viewerID)
 	if limit > 0 {
 		q = q.Limit(limit)
@@ -275,5 +273,38 @@ func (r *postRepository) hydratePostFields(posts []*model.Post) {
 			post.CommunityName = community.Name
 			post.CommunityAvatar = community.AvatarURL
 		}
+	}
+
+	r.hydrateCommentCounts(posts)
+}
+
+func (r *postRepository) hydrateCommentCounts(posts []*model.Post) {
+	if len(posts) == 0 {
+		return
+	}
+
+	postIDs := make([]uint, 0, len(posts))
+	for _, post := range posts {
+		postIDs = append(postIDs, post.ID)
+	}
+
+	type commentCountRow struct {
+		PostID uint
+		Count  int64
+	}
+	var rows []commentCountRow
+	_ = r.db.Model(&model.Comment{}).
+		Select("post_id, COUNT(*) as count").
+		Where("post_id IN ?", postIDs).
+		Group("post_id").
+		Scan(&rows).Error
+
+	countsByPostID := make(map[uint]int, len(rows))
+	for _, row := range rows {
+		countsByPostID[row.PostID] = int(row.Count)
+	}
+
+	for _, post := range posts {
+		post.CommentCount = countsByPostID[post.ID]
 	}
 }
