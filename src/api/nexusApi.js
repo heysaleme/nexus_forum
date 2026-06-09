@@ -710,9 +710,15 @@ const nexusApi = {
         },
         Notification: {
             ...createEntityApi('Notification', '/notifications'),
+            async list() {
+                return request('/notifications');
+            },
             async readAll() {
                 return request('/notifications/read', { method: 'POST' });
-            }
+            },
+            async markRead(id) {
+                return request(`/notifications/${id}/read`, { method: 'POST' });
+            },
         },
         Report: {
             async list() {

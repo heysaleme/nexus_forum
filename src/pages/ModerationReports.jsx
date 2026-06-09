@@ -178,7 +178,15 @@ export default function ModerationReports() {
                                                 <span className="capitalize">{report.target_type}</span>
                                             </Badge>
                                             <span className="text-[10px] text-muted-foreground">ID цели: {report.target_id}</span>
+                                            {report.created_date && (
+                                                <span className="text-[10px] text-muted-foreground">
+                                                    {new Date(report.created_date).toLocaleString()}
+                                                </span>
+                                            )}
                                         </div>
+                                        {report.target_summary && (
+                                            <p className="text-xs font-semibold text-foreground truncate">Объект: {report.target_summary}</p>
+                                        )}
                                         <p className="text-sm font-bold truncate">Причина: {report.reason}</p>
                                         {report.description && (
                                             <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{report.description}</p>

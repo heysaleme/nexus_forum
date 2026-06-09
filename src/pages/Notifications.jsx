@@ -13,7 +13,10 @@ import { Link } from 'react-router-dom';
 
 const NOTIF_ICONS = {
     reply: { icon: MessageCircle, color: 'bg-blue-100 text-blue-600' },
+    comment: { icon: MessageCircle, color: 'bg-blue-100 text-blue-600' },
     mention: { icon: Star, color: 'bg-yellow-100 text-yellow-600' },
+    content_removed: { icon: Shield, color: 'bg-red-100 text-red-600' },
+    report_resolved: { icon: Shield, color: 'bg-green-100 text-green-600' },
     follow: { icon: UserPlus, color: 'bg-green-100 text-green-600' },
     message: { icon: MessageCircle, color: 'bg-primary/10 text-primary' },
     moderation: { icon: Shield, color: 'bg-red-100 text-red-600' },
@@ -36,20 +39,20 @@ export default function Notifications() {
 
     const loadNotifications = async () => {
         setLoading(true);
-        const data = await nexusApi.entities.Notification.filter({ user_id: user.id }, '-created_date', 50);
+        const data = await nexusApi.entities.Notification.list();
         setNotifications(data);
         setLoading(false);
     };
 
     const markAllRead = async () => {
         const unread = notifications.filter(n => !n.is_read);
-        await Promise.all(unread.map(n => nexusApi.entities.Notification.update(n.id, { is_read: true })));
+        await nexusApi.entities.Notification.readAll();
         setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
     };
 
     const markRead = async (notif) => {
         if (notif.is_read) return;
-        await nexusApi.entities.Notification.update(notif.id, { is_read: true });
+        await nexusApi.entities.Notification.markRead(notif.id);
         setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n));
     };
 

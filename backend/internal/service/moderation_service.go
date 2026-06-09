@@ -255,7 +255,7 @@ func (s *moderationService) RemovePost(moderatorID, postID uint, reason string) 
 	}
 
 	communityID := post.CommunityID
-	return s.modRepo.CreateLog(&model.ModerationLog{
+	if err := s.modRepo.CreateLog(&model.ModerationLog{
 		ActorID:           moderatorID,
 		TargetID:          postID,
 		TargetType:        "post",
@@ -263,7 +263,17 @@ func (s *moderationService) RemovePost(moderatorID, postID uint, reason string) 
 		Details:           reason,
 		CommunityID:       &communityID,
 		ModeratorUsername: modUsername,
+	}); err != nil {
+		return err
+	}
+
+	_ = s.notifRepo.Create(&model.Notification{
+		UserID: post.AuthorID,
+		Type:   "content_removed",
+		Title:  "Публикация удалена",
+		Body:   "Ваша публикация '" + post.Title + "' была удалена модератором: " + reason,
 	})
+	return nil
 }
 
 func (s *moderationService) RemoveComment(moderatorID, commentID uint, reason string) error {
@@ -304,7 +314,7 @@ func (s *moderationService) RemoveComment(moderatorID, commentID uint, reason st
 	}
 
 	communityID := post.CommunityID
-	return s.modRepo.CreateLog(&model.ModerationLog{
+	if err := s.modRepo.CreateLog(&model.ModerationLog{
 		ActorID:           moderatorID,
 		TargetID:          commentID,
 		TargetType:        "comment",
@@ -312,7 +322,17 @@ func (s *moderationService) RemoveComment(moderatorID, commentID uint, reason st
 		Details:           reason,
 		CommunityID:       &communityID,
 		ModeratorUsername: modUsername,
+	}); err != nil {
+		return err
+	}
+
+	_ = s.notifRepo.Create(&model.Notification{
+		UserID: comment.AuthorID,
+		Type:   "content_removed",
+		Title:  "Комментарий удален",
+		Body:   "Ваш комментарий был удален модератором: " + reason,
 	})
+	return nil
 }
 
 func (s *moderationService) GetLogs(moderatorID uint, limit int) ([]*model.ModerationLog, error) {

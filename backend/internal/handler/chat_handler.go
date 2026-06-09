@@ -2,7 +2,6 @@ package handler
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"time"
 
@@ -165,8 +164,6 @@ func (h *Handlers) SendMessage(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	log.Printf("MESSAGE CREATED ID = %d", msg.ID)
-
 	if hasOtherParticipants {
 		msg.IsDelivered = true
 		if h.WSHub.db != nil {
@@ -188,8 +185,6 @@ func (h *Handlers) SendMessage(c *gin.Context) {
 		AttachmentType: msg.AttachmentType,
 		Timestamp:      msg.CreatedAt,
 	})
-
-	log.Printf("WS SEND ID = %d", msg.ID)
 
 	h.WSHub.Broadcast(roomID, payload)
 

@@ -385,25 +385,20 @@ export default function Profile() {
                 <div className="px-4 pt-3">
                     <Tabs value={activeTab} onValueChange={(tab) => setSearchParams(tab === 'posts' ? {} : { tab })}>
                         <TabsList className="bg-muted/50 rounded-xl p-1 mb-3 w-full">
-                            <TabsTrigger value="posts" className="rounded-lg text-xs gap-1.5 flex-1">
-                                <FileText className="w-3.5 h-3.5" />Посты ({posts.length})
-                            </TabsTrigger>
-                            {isOwn && (
-                                <>
-                                    <TabsTrigger value="drafts" className="rounded-lg text-xs gap-1.5 flex-1">
-                                        <FileText className="w-3.5 h-3.5" />Черновики ({drafts.length})
-                                    </TabsTrigger>
-                                    <TabsTrigger value="scheduled" className="rounded-lg text-xs gap-1.5 flex-1">
-                                        <Clock className="w-3.5 h-3.5" />Отложенные ({scheduled.length})
-                                    </TabsTrigger>
-                                    <TabsTrigger value="saved" className="rounded-lg text-xs gap-1.5 flex-1">
-                                        <Bookmark className="w-3.5 h-3.5" />Сохранённые
-                                    </TabsTrigger>
-                                </>
-                            )}
-                            <TabsTrigger value="achievements" className="rounded-lg text-xs gap-1.5 flex-1">
-                                <Trophy className="w-3.5 h-3.5" />Достижения
-                            </TabsTrigger>
+                            {[
+                                { value: 'posts', icon: FileText, label: `Посты (${posts.length})` },
+                                ...(isOwn ? [
+                                    { value: 'drafts', icon: FileText, label: `Черновики (${drafts.length})` },
+                                    { value: 'scheduled', icon: Clock, label: `Отложенные (${scheduled.length})` },
+                                    { value: 'saved', icon: Bookmark, label: 'Сохранённые' },
+                                ] : []),
+                                { value: 'achievements', icon: Trophy, label: 'Достижения' },
+                            ].map(({ value, icon: Icon, label }) => (
+                                <TabsTrigger key={value} value={value} className="rounded-lg text-xs gap-1.5 flex-1 px-2">
+                                    <Icon className="w-3.5 h-3.5 shrink-0" />
+                                    <span className={`truncate ${activeTab === value ? 'inline' : 'hidden'} md:inline`}>{label}</span>
+                                </TabsTrigger>
+                            ))}
                         </TabsList>
 
                         {isOwn && (

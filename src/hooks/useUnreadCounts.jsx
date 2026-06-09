@@ -15,14 +15,16 @@ export default function useUnreadCounts(user) {
 
         const loadCounts = async () => {
             try {
-                const [notifications, rooms] = await Promise.all([
-                    nexusApi.entities.Notification.filter({ user_id: user.id }, '-created_date', 100),
+                const [notifRes, rooms] = await Promise.all([
+                    fetch(`${nexusApi.BASE_URL}/notifications/unread-count`, {
+                        headers: { Authorization: `Bearer ${localStorage.getItem('nexus_forum_session_token')}` },
+                    }).then((r) => r.json()).catch(() => ({ count: 0 })),
                     nexusApi.entities.ChatRoom.filter({ participants: user.id }, '-last_message_at', 100),
                 ]);
 
                 if (!cancelled) {
                     setCounts({
-                        notifications: notifications.filter((item) => !item.is_read).length,
+                        notifications: Number(notifRes?.count) || 0,
                         chats: rooms.reduce((sum, room) => sum + (room.unread_count || 0), 0),
                     });
                 }

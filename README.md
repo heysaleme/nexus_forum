@@ -1,6 +1,6 @@
 # Nexus Forum
 
-Reddit-style forum for fandom communities: posts, nested comments, communities, real-time chat, moderation, and analytics.
+Reddit-style forum for fandom communities: posts, nested comments, communities, real-time chat, moderation, notifications, and analytics.
 
 **Stack:** Go (Gin + GORM) backend · React (Vite) frontend · SQLite (default) or PostgreSQL · MinIO (optional) · Prometheus + Grafana + Loki (optional observability)
 
@@ -8,7 +8,7 @@ Reddit-style forum for fandom communities: posts, nested comments, communities, 
 
 ## Project overview
 
-Nexus Forum lets users join communities, publish posts (text, image, video, link, poll), vote, comment in threads, chat in DMs, and moderate content. Admins get analytics (DAU/MAU) via API.
+Nexus Forum lets users join communities, publish posts (text, image, video, link, poll), schedule posts, vote, comment in threads, receive in-app notifications (with live WebSocket unread counts), chat in DMs, and moderate content. Admins get analytics (DAU/MAU, retention, engagement) via API.
 
 ---
 
@@ -23,6 +23,8 @@ Go API (cmd/api)
     ├── handler/      HTTP controllers
     ├── service/      Business logic
     ├── repository/   GORM data access
+    ├── search/       Unicode-aware post/user/community search
+    ├── email/        SMTP notifications (optional)
     └── storage/      MinIO or local ./uploads
 
 SQLite / PostgreSQL          MinIO (optional)
@@ -38,11 +40,13 @@ Backend follows layered architecture: **handler → service → repository → m
 ```
 nexus_forum/
 ├── backend/
-│   ├── cmd/api/main.go          # Entry point, routes, migrations, seed
+│   ├── cmd/api/main.go          # Entry point, routes, migrations, seed, schedulers
 │   ├── internal/
 │   │   ├── handler/             # HTTP handlers
 │   │   ├── service/             # Business logic
 │   │   ├── repository/          # Database access
+│   │   ├── search/              # Unicode search index + queries
+│   │   ├── email/               # SMTP mailer + notification emails
 │   │   ├── model/               # GORM entities
 │   │   ├── middleware/          # Auth, metrics, rate limit
 │   │   └── storage/             # MinIO + local upload backends
@@ -51,7 +55,7 @@ nexus_forum/
 │   ├── api/nexusApi.js          # API client (auth, feed, entities)
 │   ├── pages/                   # Route pages
 │   ├── components/              # UI components
-│   └── lib/                     # AuthContext, captcha, helpers
+│   └── lib/                     # AuthContext, ChatLayoutContext, helpers
 ├── monitoring/                  # Prometheus, Grafana, Loki configs
 ├── docker-compose.yml
 └── README.md
@@ -79,7 +83,9 @@ API: **http://localhost:8080**
 Health: `GET /health`  
 Metrics: `GET /metrics`
 
-On first start, SQLite file `backend/nexus_forum.db` is created automatically, tables are migrated, and demo users are seeded if the DB is empty.
+On first start, SQLite file `backend/nexus_forum.db` is created automatically, tables are migrated, search indexes are built, and demo users are seeded if the DB is empty.
+
+A background worker publishes due **scheduled posts** every 30 seconds.
 
 ### Frontend
 
@@ -91,6 +97,41 @@ npm run dev
 App: **http://localhost:5173**
 
 Set `VITE_API_URL=http://localhost:8080/api` in `.env` if the API is not on the default host.
+
+---
+
+## Key features
+
+### Feeds
+
+| Home tab | Endpoint | Content |
+|----------|----------|---------|
+| Hot / New / Top | `GET /api/posts` | All published posts |
+| **Following Users** | `GET /api/posts/following` | Posts from followed users |
+| **Following Communities** | `GET /api/posts/following-communities` | Posts from joined communities |
+
+### Notifications
+
+- Created on comment, reply, mention, moderation actions, scheduled publish, etc.
+- In-app list: `GET /api/notifications`
+- Unread badge: `GET /api/notifications/unread-count`
+- Live updates: WebSocket `GET /api/ws/global` (messages `notification`, `unread_count`)
+- Optional email via SMTP when user preferences allow (`email_notify_*` fields)
+
+### Search
+
+Unicode-aware search across posts (title, content, tags), users, and communities. Uses FTS5 when the SQLite build supports it; otherwise a Unicode token index (`post_search_tokens` + `search_blob`). Supports Cyrillic and Latin mixed queries.
+
+`GET /api/search?q=...`
+
+### Scheduled posts
+
+Create with `status: "scheduled"` and `publish_at` (ISO timestamp). View under **Profile → Отложенные**. The backend worker auto-publishes due posts and sends an in-app notification.
+
+### Moderation reports
+
+Users submit: `POST /api/reports`  
+Admins view enriched queue: `GET /api/moderation/reports` (reporter username, target type/id, summary, reason, status, date)
 
 ---
 
@@ -193,6 +234,19 @@ Check config: `GET /api/auth/oauth/config` → `{ google_enabled, github_enabled
 
 ---
 
+## Email & registration
+
+| Variable | Purpose |
+|----------|---------|
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM` | Enable outbound email |
+| `SMTP_USERNAME`, `SMTP_PASSWORD` | SMTP auth (e.g. Gmail app password) |
+
+Registration sends a confirmation link (`/confirm-email?token=...`) when SMTP is configured; otherwise dev OTP **`123456`** is accepted.
+
+Password reset and notification emails also use SMTP when enabled.
+
+---
+
 ## Environment variables
 
 | Variable | Location | Purpose |
@@ -201,9 +255,10 @@ Check config: `GET /api/auth/oauth/config` → `{ google_enabled, github_enabled
 | `DB_TYPE` | backend | `sqlite` or `postgres` |
 | `SQLITE_DB` | backend | SQLite filename |
 | `DATABASE_URL` | backend | Postgres DSN |
-| `FRONTEND_URL` | backend | OAuth redirects |
+| `FRONTEND_URL` | backend | OAuth redirects, email links |
 | `GOOGLE_CLIENT_ID/SECRET` | backend | Google OAuth |
 | `GITHUB_CLIENT_ID/SECRET` | backend | GitHub OAuth |
+| `SMTP_*` | backend | Email delivery |
 | `CLOUDFLARE_TURNSTILE_SECRET` | backend | Server-side CAPTCHA |
 | `CLOUDFLARE_TURNSTILE_SITE_KEY` | backend | Public site key (returned via `/auth/oauth/config`) |
 | `MINIO_*` | backend | Object storage |
@@ -228,7 +283,16 @@ Demo password for all seeded users: **`password123`**
 | moderator@example.com | moderator |
 | kai@example.com | user |
 
-Registration OTP (dev): **`123456`**
+---
+
+## Running tests
+
+```bash
+cd backend
+go test ./...
+```
+
+Covers auth, posts, comments, moderation, analytics, search normalization, and resilience helpers.
 
 ---
 
@@ -260,9 +324,12 @@ Schedule daily cron + off-site copy. For HA, use managed Postgres with replicas 
 | `address already in use :8080` | Stop other backend process or change `PORT` |
 | OAuth returns 503 | Set `GOOGLE_CLIENT_ID` / `GITHUB_CLIENT_ID` in `.env` |
 | Upload fails | Check MinIO running or use local fallback (`LOCAL_UPLOAD_DIR`) |
-| Feed empty on Following | Follow users (not just join communities); feed uses `GET /api/posts/following` |
+| Following Users feed empty | Follow users via profile; uses `GET /api/posts/following` |
+| Following Communities feed empty | Join communities; uses `GET /api/posts/following-communities` |
+| Search misses Cyrillic | Restart API to rebuild indexes; ensure post is `published` |
+| Notifications not live | Check WebSocket `GET /api/ws/global` and JWT in `Sec-WebSocket-Protocol` |
 | CAPTCHA modal empty | Set `CLOUDFLARE_TURNSTILE_SITE_KEY` + `CLOUDFLARE_TURNSTILE_SECRET` |
-| 401 after 24h | Refresh token flow should auto-renew; clear localStorage and re-login if stuck |
+| 401 after login | Re-login (JWT requires `sid` session id); clear localStorage if stuck |
 | Prometheus target DOWN | Ensure backend container name matches `prometheus.yml` target |
 
 ---
@@ -270,12 +337,12 @@ Schedule daily cron + off-site copy. For HA, use managed Postgres with replicas 
 ## Deployment instructions
 
 1. Build images: `docker compose build`
-2. Set production `.env` (strong `JWT_SECRET`, Postgres, MinIO, OAuth URLs).
+2. Set production `.env` (strong `JWT_SECRET`, Postgres, MinIO, OAuth URLs, SMTP).
 3. Point domain to frontend; reverse-proxy `/api` and `/uploads` to backend.
 4. Register production OAuth callback URLs.
 5. Enable HTTPS; set `MINIO_USE_SSL=true` if using TLS MinIO.
 6. Start stack: `docker compose up -d`
-7. Verify: `/health`, `/metrics`, login, feed sorts.
+7. Verify: `/health`, `/metrics`, login, feed sorts, notifications.
 
 ---
 
@@ -285,11 +352,11 @@ Schedule daily cron + off-site copy. For HA, use managed Postgres with replicas 
 - [ ] Use PostgreSQL instead of SQLite
 - [ ] Configure MinIO with non-default credentials
 - [ ] Set real OAuth client IDs and production callback URLs
+- [ ] Configure SMTP for email confirmation and notifications
 - [ ] Enable Turnstile CAPTCHA for suspicious users
 - [ ] Configure automated DB + object storage backups
 - [ ] Restrict Grafana admin password
 - [ ] Put API behind reverse proxy with TLS
-- [ ] Remove dev `reset_token` exposure (disable in production email flow)
 - [ ] Set `FRONTEND_URL` and `VITE_API_URL` to production domains
 
 ---
@@ -302,10 +369,10 @@ Run with backend on port 8080:
 cd backend && go run ./scripts/benchperf/main.go
 ```
 
-Target: all listed routes **&lt; 200 ms** average.
+Target: all listed routes **< 200 ms** average.
 
 ---
 
 ## Demo users
 
-See [Database initialization](#database-initialization). Admin panel: `/admin` (admin role only).
+See [Database initialization](#database-initialization). Admin panel: `/admin` (admin role only). Moderation reports: `/admin/reports`.

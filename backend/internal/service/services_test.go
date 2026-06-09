@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"os"
 	"testing"
+	"time"
 
 	"nexus-forum-backend/internal/email"
 	"nexus-forum-backend/internal/model"
@@ -40,6 +41,7 @@ func setupDB(t *testing.T) *gorm.DB {
 		&model.PasswordResetToken{},
 		&model.RefreshToken{},
 		&model.EmailVerification{},
+		&model.PostSearchToken{},
 	)
 	if err != nil {
 		t.Fatalf("failed to auto-migrate: %v", err)
@@ -631,5 +633,124 @@ func TestAnalyticsService_TrackAndDashboard(t *testing.T) {
 	}
 	if mau != 2 {
 		t.Errorf("expected mau=2, got %d", mau)
+	}
+
+	retention, err := analyticsSvc.GetRetention()
+	if err != nil {
+		t.Fatalf("GetRetention failed: %v", err)
+	}
+	if _, ok := retention["d1"]; !ok {
+		t.Error("expected d1 retention key")
+	}
+
+	engagement, err := analyticsSvc.GetEngagement()
+	if err != nil {
+		t.Fatalf("GetEngagement failed: %v", err)
+	}
+	if engagement["total_posts"] == nil {
+		t.Error("expected total_posts in engagement stats")
+	}
+}
+
+func TestCommentService_CreatesNotifications(t *testing.T) {
+	db := setupDB(t)
+	userRepo := repository.NewUserRepository(db)
+	postRepo := repository.NewPostRepository(db)
+	commentRepo := repository.NewCommentRepository(db)
+	voteRepo := repository.NewVoteRepository(db)
+	notifRepo := repository.NewNotificationRepository(db)
+	commRepo := repository.NewCommunityRepository(db)
+
+	author := &model.User{Username: "author", Email: "author@example.com", PasswordHash: "h", ProfileTheme: "default"}
+	replier := &model.User{Username: "replier", Email: "replier@example.com", PasswordHash: "h", ProfileTheme: "default"}
+	mentioned := &model.User{Username: "mentioned", Email: "mentioned@example.com", PasswordHash: "h", ProfileTheme: "default"}
+	_ = userRepo.Create(author)
+	_ = userRepo.Create(replier)
+	_ = userRepo.Create(mentioned)
+
+	comm := &model.Community{Name: "C", Slug: "c", OwnerID: author.ID, Visibility: "public"}
+	_ = commRepo.Create(comm)
+	post := &model.Post{CommunityID: comm.ID, AuthorID: author.ID, Title: "Post", Type: "text", Status: "published", MediaUrls: "[]", Tags: "[]"}
+	_ = postRepo.Create(post)
+
+	commentSvc := service.NewCommentService(commentRepo, userRepo, postRepo, voteRepo, notifRepo, commRepo)
+
+	parent := &model.Comment{PostID: post.ID, AuthorID: author.ID, Content: "parent"}
+	if err := commentSvc.Create(parent); err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+
+	reply := &model.Comment{PostID: post.ID, AuthorID: replier.ID, Content: "reply here", ParentID: &parent.ID}
+	if err := commentSvc.Create(reply); err != nil {
+		t.Fatalf("create reply: %v", err)
+	}
+
+	mention := &model.Comment{PostID: post.ID, AuthorID: replier.ID, Content: "hello @mentioned"}
+	if err := commentSvc.Create(mention); err != nil {
+		t.Fatalf("create mention: %v", err)
+	}
+
+	notifs, err := notifRepo.GetByUser(author.ID)
+	if err != nil {
+		t.Fatalf("GetByUser: %v", err)
+	}
+	types := map[string]int{}
+	for _, n := range notifs {
+		types[n.Type]++
+	}
+	if types["reply"] < 1 {
+		t.Errorf("expected reply notification for post author, got types=%v", types)
+	}
+
+	mentionedNotifs, _ := notifRepo.GetByUser(mentioned.ID)
+	foundMention := false
+	for _, n := range mentionedNotifs {
+		if n.Type == "mention" {
+			foundMention = true
+		}
+	}
+	if !foundMention {
+		t.Error("expected mention notification for @mentioned user")
+	}
+}
+
+func TestPostService_PublishDueScheduled(t *testing.T) {
+	db := setupDB(t)
+	postRepo := repository.NewPostRepository(db)
+	voteRepo := repository.NewVoteRepository(db)
+	userRepo := repository.NewUserRepository(db)
+	commRepo := repository.NewCommunityRepository(db)
+	postSvc := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, repository.NewSavedPostRepository(db), repository.NewNotificationRepository(db))
+
+	user := &model.User{Username: "sched", Email: "sched@example.com", PasswordHash: "h", ProfileTheme: "default"}
+	_ = userRepo.Create(user)
+	comm := &model.Community{Name: "Sched", Slug: "sched", OwnerID: user.ID, Visibility: "public"}
+	_ = commRepo.Create(comm)
+
+	past := time.Now().Add(-1 * time.Minute)
+	scheduled := &model.Post{
+		CommunityID: comm.ID,
+		AuthorID:    user.ID,
+		Title:       "Future post",
+		Type:        "text",
+		Status:      "scheduled",
+		PublishAt:   &past,
+		MediaUrls:   "[]",
+		Tags:        "[]",
+	}
+	if err := postRepo.Create(scheduled); err != nil {
+		t.Fatalf("create scheduled post: %v", err)
+	}
+
+	published, err := postSvc.PublishDueScheduled()
+	if err != nil {
+		t.Fatalf("PublishDueScheduled: %v", err)
+	}
+	if len(published) != 1 {
+		t.Fatalf("expected 1 published post, got %d", len(published))
+	}
+	updated, _ := postRepo.GetByID(scheduled.ID)
+	if updated.Status != "published" {
+		t.Errorf("expected status published, got %s", updated.Status)
 	}
 }

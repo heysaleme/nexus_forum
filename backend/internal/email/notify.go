@@ -17,11 +17,11 @@ func MaybeNotifyForNotification(mailer *Mailer, user *model.User, notif *model.N
 	body := notif.Body
 
 	switch notif.Type {
-	case "reply":
+	case "reply", "comment":
 		allowed = user.EmailNotifyReply
 	case "mention":
 		allowed = user.EmailNotifyMention
-	case "follow":
+	case "follow", "follow_accept", "follow_request":
 		allowed = user.EmailNotifyFollow
 	case "moderation", "content_removed", "user_banned":
 		allowed = user.EmailNotifyModeration

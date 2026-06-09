@@ -92,7 +92,7 @@ func (h *WSHub) run() {
 			isNewOnline := h.onlineUsers[client.userID] == 1
 			h.mu.Unlock()
 
-			slog.Info("ws client joined room", "room_id", client.roomID, "user_id", client.userID, "is_new_online", isNewOnline)
+			slog.Debug("ws client joined room", "room_id", client.roomID, "user_id", client.userID, "is_new_online", isNewOnline)
 
 			if isNewOnline && h.db != nil {
 				go func(uid uint) {
@@ -141,7 +141,7 @@ func (h *WSHub) run() {
 			}
 			h.mu.Unlock()
 
-			slog.Info("ws client left room", "room_id", client.roomID, "user_id", client.userID, "is_now_offline", isNowOffline)
+			slog.Debug("ws client left room", "room_id", client.roomID, "user_id", client.userID, "is_now_offline", isNowOffline)
 
 			if isNowOffline && h.db != nil {
 				go func(uid uint) {

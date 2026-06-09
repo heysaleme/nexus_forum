@@ -1,7 +1,6 @@
 package repository
 
 import (
-	"fmt"
 	"nexus-forum-backend/internal/model"
 
 	"gorm.io/gorm"
@@ -51,19 +50,9 @@ func (r *voteRepository) SaveVote(vote *model.Vote) error {
 }
 
 func (r *voteRepository) DeleteVote(userID uint, entityType string, entityID uint) error {
-
-	fmt.Println("DELETE QUERY")
-	fmt.Println("USER:", userID)
-	fmt.Println("TYPE:", entityType)
-	fmt.Println("ENTITY:", entityID)
-
 	result := r.db.
 		Where("user_id = ? AND entity_type = ? AND entity_id = ?",
 			userID, entityType, entityID).
 		Delete(&model.Vote{})
-
-	fmt.Println("ROWS AFFECTED:", result.RowsAffected)
-	fmt.Println("DELETE ERROR:", result.Error)
-
 	return result.Error
 }

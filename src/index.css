@@ -5,9 +5,11 @@
 @tailwind utilities;
 
 html.app-shell,
-html.app-shell body {
+html.app-shell body,
+html.app-shell #root {
     overflow: hidden;
     height: 100%;
+    max-height: 100dvh;
 }
 
 body.chat-fullscreen {

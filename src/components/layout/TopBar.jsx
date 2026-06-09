@@ -5,8 +5,11 @@ import { Input } from '@/components/ui/input';
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import useUnreadCounts from '@/hooks/useUnreadCounts';
+import { useChatLayout } from '@/lib/ChatLayoutContext';
 
 export default function TopBar({ user }) {
+    const { mobileChatOpen } = useChatLayout();
+    if (mobileChatOpen) return null;
     const navigate = useNavigate();
     const [query, setQuery] = useState('');
     const [dark, setDark] = useState(false);

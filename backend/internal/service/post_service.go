@@ -153,12 +153,6 @@ func (s *postService) Search(query string, limit int, viewerID uint) ([]*model.P
 }
 
 func (s *postService) Vote(userID, postID uint, value int) error {
-
-	fmt.Println("===== VOTE SERVICE =====")
-	fmt.Println("USER:", userID)
-	fmt.Println("POST:", postID)
-	fmt.Println("VALUE:", value)
-
 	if value != 1 && value != -1 && value != 0 {
 		return errors.New("invalid vote value")
 	}
@@ -223,10 +217,6 @@ func (s *postService) Vote(userID, postID uint, value int) error {
 		}
 
 		err = s.voteRepo.SaveVote(vote)
-
-		fmt.Println("SAVE VOTE ERR:", err)
-		fmt.Printf("VOTE: %+v\n", vote)
-
 		if err != nil {
 			return err
 		}

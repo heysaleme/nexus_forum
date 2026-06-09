@@ -176,7 +176,7 @@ export default function Home() {
                                         : 'Вступи в сообщества, чтобы видеть публикации'
                             }
                             action={
-                                sort === 'following-users' ? undefined : (
+                                sort === 'following-users' || sort === 'following-communities' ? undefined : (
                                     <Link to="/communities">
                                         <Button className="nexus-gradient border-0 text-white rounded-xl shadow-nexus">
                                             Найти сообщества

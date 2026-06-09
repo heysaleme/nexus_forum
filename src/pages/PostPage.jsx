@@ -557,7 +557,7 @@ export default function PostPage() {
                         <span className="text-xs font-bold text-primary group-hover:underline">{post.community_name}</span>
                     </Link>
                     <span className="text-muted-foreground text-xs">·</span>
-                    <Link to={profilePath(post.author_id, currentUser?.id)} className="flex items-center gap-1.5 group">
+                    <Link to={profilePath(post.author_id, user?.id)} className="flex items-center gap-1.5 group">
                         <img src={post.author_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.author_username}`} className="w-4 h-4 rounded-full" alt="" />
                         <span className="text-xs text-muted-foreground group-hover:text-foreground">{post.author_username}</span>
                     </Link>

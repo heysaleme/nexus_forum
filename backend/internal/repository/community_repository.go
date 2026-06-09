@@ -1,8 +1,6 @@
 package repository
 
 import (
-	"strings"
-
 	"nexus-forum-backend/internal/model"
 	"nexus-forum-backend/internal/search"
 
@@ -71,34 +69,15 @@ func (r *communityRepository) Filter(filter map[string]interface{}) ([]*model.Co
 }
 
 func (r *communityRepository) Search(query string, limit int) ([]*model.Community, error) {
+	ids, err := search.CommunityIDsMatching(r.db, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return []*model.Community{}, nil
+	}
 	var communities []*model.Community
-	dialect := r.db.Dialector.Name()
-	query = strings.TrimSpace(query)
-	var q *gorm.DB
-	if dialect == "postgres" {
-		q = r.db.Where("to_tsvector('simple', coalesce(name,'') || ' ' || coalesce(description,'')) @@ plainto_tsquery('simple', ?)", query)
-	} else if search.FTSEnabled() {
-		ftsQuery := search.BuildFTSQuery(query)
-		if ftsQuery != "" {
-			sub := r.db.Table("communities_fts").Select("rowid").Where("communities_fts MATCH ?", ftsQuery)
-			q = r.db.Where("id IN (?)", sub)
-		} else {
-			likePattern := "%" + strings.ToLower(query) + "%"
-			q = r.db.Where("LOWER(name) LIKE ? OR LOWER(description) LIKE ?", likePattern, likePattern)
-		}
-	} else {
-		likePattern := "%" + query + "%"
-		likeLower := "%" + strings.ToLower(query) + "%"
-		q = r.db.Where(
-			"name LIKE ? OR description LIKE ? OR LOWER(name) LIKE ?",
-			likePattern, likePattern, likeLower,
-		)
-	}
-
-	if limit > 0 {
-		q = q.Limit(limit)
-	}
-	err := q.Find(&communities).Error
+	err = r.db.Where("id IN ?", ids).Find(&communities).Error
 	return communities, err
 }
 

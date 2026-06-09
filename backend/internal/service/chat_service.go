@@ -3,7 +3,6 @@ package service
 import (
 	"encoding/json"
 	"errors"
-	"log"
 	"nexus-forum-backend/internal/model"
 	"nexus-forum-backend/internal/repository"
 	"time"
@@ -126,17 +125,6 @@ func (s *chatService) SendMessageWithAttachment(senderID, roomID uint, content, 
 	if err != nil {
 		return nil, err
 	}
-
-	log.Printf(
-
-		"AFTER CREATE: ID=%d ROOM=%d CONTENT=%s",
-
-		msg.ID,
-
-		msg.ChatRoomID,
-
-		msg.Content,
-	)
 
 	// Update room last message info
 	room, err := s.repo.GetRoom(roomID)

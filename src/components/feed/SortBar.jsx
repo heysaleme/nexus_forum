@@ -5,8 +5,8 @@ const sorts = [
     { id: 'hot', label: 'Горячее', icon: Flame },
     { id: 'new', label: 'Новое', icon: Clock },
     { id: 'top', label: 'Лучшее', icon: TrendingUp },
-    { id: 'following-users', label: 'Подписки', icon: Users },
-    { id: 'following-communities', label: 'Мои сообщества', icon: Building2 },
+    { id: 'following-users', label: 'Following Users', icon: Users },
+    { id: 'following-communities', label: 'Following Communities', icon: Building2 },
     { id: 'trending', label: 'Тренды', icon: Zap },
 ];
 

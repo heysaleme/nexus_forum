@@ -287,7 +287,43 @@ func (h *Handlers) GetReports(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, reports)
+	enriched := make([]gin.H, 0, len(reports))
+	for _, report := range reports {
+		item := gin.H{
+			"id":                 report.ID,
+			"reporter_id":        report.ReporterID,
+			"reporter_username":  report.ReporterUsername,
+			"target_id":          report.TargetID,
+			"target_type":        report.TargetType,
+			"reason":             report.Reason,
+			"description":        report.Description,
+			"status":             report.Status,
+			"moderator_response": report.ModeratorResponse,
+			"created_date":       report.CreatedAt,
+			"target_summary":     "",
+		}
+		switch report.TargetType {
+		case "post":
+			if post, err := h.PostService.GetByID(report.TargetID); err == nil {
+				item["target_summary"] = post.Title
+			}
+		case "comment":
+			if comment, err := h.CommentService.GetByID(report.TargetID); err == nil {
+				summary := comment.Content
+				if len(summary) > 120 {
+					summary = summary[:120] + "…"
+				}
+				item["target_summary"] = summary
+			}
+		case "user":
+			if u, err := h.UserService.GetByID(report.TargetID); err == nil {
+				item["target_summary"] = u.Username
+			}
+		}
+		enriched = append(enriched, item)
+	}
+
+	c.JSON(http.StatusOK, enriched)
 }
 
 func (h *Handlers) UpdateReport(c *gin.Context) {

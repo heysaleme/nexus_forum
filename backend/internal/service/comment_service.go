@@ -2,15 +2,20 @@ package service
 
 import (
 	"errors"
-	"fmt"
+	"regexp"
+	"strings"
+
 	"nexus-forum-backend/internal/model"
 	"nexus-forum-backend/internal/repository"
 )
+
+var mentionPattern = regexp.MustCompile(`@([a-zA-Z0-9_\p{L}]+)`)
 
 type CommentService interface {
 	Create(comment *model.Comment) error
 	Update(userID uint, commentID uint, content string) (*model.Comment, error)
 	Delete(userID, commentID uint) error
+	GetByID(commentID uint) (*model.Comment, error)
 	GetByPostID(postID uint, viewerID uint) ([]*model.Comment, error)
 	Vote(userID, commentID uint, value int) error
 	GetVote(userID, commentID uint) (*model.Vote, error)
@@ -66,31 +71,68 @@ func (s *commentService) Create(comment *model.Comment) error {
 		*comment = *hydrated
 	}
 
+	author, _ := s.userRepo.GetByID(comment.AuthorID)
+	authorName := "Кто-то"
+	authorAvatar := ""
+	if author != nil {
+		authorName = author.Username
+		authorAvatar = author.AvatarURL
+	}
+
 	// Increment comment count on post
 	post, _ := s.postRepo.GetByID(comment.PostID)
 	if post != nil {
 		post.CommentCount++
 		_ = s.postRepo.Update(post)
 
-		// Notify post author
+		isReply := comment.ParentID != nil && *comment.ParentID > 0
 		if post.AuthorID != comment.AuthorID {
-			author, _ := s.userRepo.GetByID(comment.AuthorID)
-			authorName := "Кто-то"
-			if author != nil {
-				authorName = author.Username
+			title := "Новый комментарий"
+			body := authorName + " прокомментировал ваш пост."
+			notifType := "comment"
+			if isReply {
+				title = "Новый ответ"
+				body = authorName + " ответил в обсуждении вашего поста."
+				notifType = "reply"
 			}
-			notif := &model.Notification{
-				UserID: post.AuthorID,
-				Type:   "reply",
-				Title:  "Новый ответ",
-				Body:   authorName + " ответил на ваш пост.",
+			_ = s.notifRepo.Create(&model.Notification{
+				UserID:      post.AuthorID,
+				Type:        notifType,
+				Title:       title,
+				Body:        body,
+				ActorAvatar: authorAvatar,
+			})
+		}
+
+		if isReply {
+			parent, err := s.repo.GetByID(*comment.ParentID)
+			if err == nil && parent.AuthorID != comment.AuthorID && parent.AuthorID != post.AuthorID {
+				_ = s.notifRepo.Create(&model.Notification{
+					UserID:      parent.AuthorID,
+					Type:        "reply",
+					Title:       "Ответ на комментарий",
+					Body:        authorName + " ответил на ваш комментарий.",
+					ActorAvatar: authorAvatar,
+				})
 			}
-			_ = s.notifRepo.Create(notif)
 		}
 	}
 
+	for _, username := range extractMentions(comment.Content) {
+		mentioned, err := s.userRepo.GetByUsername(username)
+		if err != nil || mentioned.ID == comment.AuthorID {
+			continue
+		}
+		_ = s.notifRepo.Create(&model.Notification{
+			UserID:      mentioned.ID,
+			Type:        "mention",
+			Title:       "Упоминание",
+			Body:        authorName + " упомянул вас в комментарии.",
+			ActorAvatar: authorAvatar,
+		})
+	}
+
 	// Add XP
-	author, _ := s.userRepo.GetByID(comment.AuthorID)
 	if author != nil {
 		author.XP += 8
 		recalculateLevel(author)
@@ -98,6 +140,27 @@ func (s *commentService) Create(comment *model.Comment) error {
 	}
 
 	return nil
+}
+
+func extractMentions(content string) []string {
+	if strings.TrimSpace(content) == "" {
+		return nil
+	}
+	matches := mentionPattern.FindAllStringSubmatch(content, -1)
+	seen := map[string]struct{}{}
+	var out []string
+	for _, m := range matches {
+		if len(m) < 2 {
+			continue
+		}
+		name := strings.ToLower(m[1])
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, m[1])
+	}
+	return out
 }
 
 func (s *commentService) Update(userID uint, commentID uint, content string) (*model.Comment, error) {
@@ -172,20 +235,15 @@ func (s *commentService) Delete(userID, commentID uint) error {
 	return s.repo.Update(comment)
 }
 
+func (s *commentService) GetByID(commentID uint) (*model.Comment, error) {
+	return s.repo.GetByID(commentID)
+}
+
 func (s *commentService) GetByPostID(postID uint, viewerID uint) ([]*model.Comment, error) {
 	return s.repo.GetByPostID(postID, viewerID)
 }
 
 func (s *commentService) Vote(userID, commentID uint, value int) error {
-
-	fmt.Println("===== COMMENT VOTE SERVICE =====")
-
-	fmt.Println("USER:", userID)
-
-	fmt.Println("COMMENT:", commentID)
-
-	fmt.Println("VALUE:", value)
-
 	if value != 1 && value != -1 && value != 0 {
 		return errors.New("invalid vote value")
 	}
