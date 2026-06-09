@@ -6,18 +6,33 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
+	pushcfg "nexus-forum-backend/internal/push"
 	"nexus-forum-backend/internal/model"
 )
 
 // PushDeliveryResult captures the outcome of a single web-push attempt.
 type PushDeliveryResult struct {
+	Provider       string `json:"provider"`
 	Endpoint       string `json:"endpoint"`
 	HTTPStatusCode int    `json:"http_status_code"`
 	ResponseBody   string `json:"response_body"`
 	Error          string `json:"error,omitempty"`
 	Delivered      bool   `json:"delivered"`
+}
+
+func pushProvider(endpoint string) string {
+	host := endpointHost(endpoint)
+	switch {
+	case strings.Contains(host, "web.push.apple.com"):
+		return "apple"
+	case strings.Contains(host, "fcm.googleapis.com"):
+		return "fcm"
+	default:
+		return host
+	}
 }
 
 func endpointHost(endpoint string) string {
@@ -41,12 +56,28 @@ func isPushDelivered(statusCode int, err error) bool {
 
 func (s *pushService) sendPayload(sub *model.PushSubscription, payload []byte) PushDeliveryResult {
 	result := PushDeliveryResult{
+		Provider: pushProvider(sub.Endpoint),
 		Endpoint: sub.Endpoint,
 	}
 
-	slog.Info("push: before SendNotification",
-		"endpoint_host", endpointHost(sub.Endpoint),
-		"endpoint_prefix", truncate(sub.Endpoint, 64),
+	host := endpointHost(sub.Endpoint)
+	aud, _ := pushcfg.JWTAudience(sub.Endpoint)
+	exp := pushcfg.JWTExpiration()
+	jwtSubject := ""
+	subscriber := ""
+	if s.vapid != nil {
+		jwtSubject = s.vapid.JWTSubject
+		subscriber = s.vapid.Subscriber
+	}
+
+	slog.Info("push: VAPID JWT before SendNotification",
+		"endpoint_host", host,
+		"provider", result.Provider,
+		"jwt_audience", aud,
+		"jwt_subject", jwtSubject,
+		"jwt_expiration", exp.Format(time.RFC3339),
+		"subscriber_option", subscriber,
+		"vapid_public_key_prefix", truncate(publicKeyPrefix(s.vapid), 16),
 		"payload_bytes", len(payload),
 	)
 
@@ -57,9 +88,9 @@ func (s *pushService) sendPayload(sub *model.PushSubscription, payload []byte) P
 			Auth:   sub.Auth,
 		},
 	}, &webpush.Options{
-		Subscriber:      s.subject,
-		VAPIDPublicKey:  s.publicKey,
-		VAPIDPrivateKey: s.privateKey,
+		Subscriber:      subscriber,
+		VAPIDPublicKey:  s.vapid.PublicKey,
+		VAPIDPrivateKey: s.vapid.PrivateKey,
 		TTL:             60,
 	})
 
@@ -103,7 +134,7 @@ func (s *pushService) sendToUserDetailed(user *model.User, notifType, title, bod
 		slog.Info("push: skipped by user preference", "user_id", user.ID, "type", notifType)
 		return nil, fmt.Errorf("push disabled for notification type %q", notifType)
 	}
-	if s.publicKey == "" || s.privateKey == "" {
+	if s.vapid == nil || s.vapid.PublicKey == "" || s.vapid.PrivateKey == "" {
 		return nil, fmt.Errorf("VAPID keys not configured")
 	}
 
@@ -127,6 +158,13 @@ func (s *pushService) sendToUserDetailed(user *model.User, notifType, title, bod
 		results = append(results, s.sendPayload(sub, payload))
 	}
 	return results, nil
+}
+
+func publicKeyPrefix(vapid *pushcfg.Config) string {
+	if vapid == nil {
+		return ""
+	}
+	return vapid.PublicKey
 }
 
 func truncate(s string, max int) string {

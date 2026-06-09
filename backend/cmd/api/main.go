@@ -24,6 +24,7 @@ import (
 	"nexus-forum-backend/internal/handler"
 	"nexus-forum-backend/internal/middleware"
 	"nexus-forum-backend/internal/model"
+	pushcfg "nexus-forum-backend/internal/push"
 	"nexus-forum-backend/internal/queue"
 	"nexus-forum-backend/internal/repository"
 	"nexus-forum-backend/internal/search"
@@ -174,7 +175,24 @@ func main() {
 	modService := service.NewModerationService(modRepo, userRepo, postRepo, commentRepo, commRepo, notifRepo, keywordFilterRepo)
 	analyticsService := service.NewAnalyticsService(analyticsRepo, userRepo, postRepo)
 	flagService := service.NewFeatureFlagService(flagRepo)
-	pushService := service.NewPushService(pushSubRepo, cfg.VAPIDPublic, cfg.VAPIDPrivate, cfg.VAPIDSubject)
+	var vapidCfg *pushcfg.Config
+	if cfg.VAPIDPublic != "" || cfg.VAPIDPrivate != "" {
+		var vapidErr error
+		vapidCfg, vapidErr = pushcfg.ValidateConfig(cfg.VAPIDPublic, cfg.VAPIDPrivate, cfg.VAPIDSubject)
+		if vapidCfg != nil {
+			logger.Info("VAPID startup validation",
+				"configured_public_key", vapidCfg.ConfiguredPublic,
+				"derived_public_key", vapidCfg.DerivedPublicKey,
+				"match", vapidCfg.KeysMatch,
+				"subscriber", vapidCfg.Subscriber,
+				"jwt_subject", vapidCfg.JWTSubject,
+			)
+		}
+		if vapidErr != nil {
+			log.Fatalf("invalid VAPID configuration: %v", vapidErr)
+		}
+	}
+	pushService := service.NewPushService(pushSubRepo, vapidCfg)
 
 	objectStore, err := storage.NewObjectStore(cfg)
 	if err != nil {
@@ -412,6 +430,7 @@ func main() {
 			secured.POST("/notifications/:id/read", handlers.MarkNotificationRead)
 			secured.PUT("/notifications/:id", handlers.MarkNotificationRead)
 			secured.GET("/push/vapid-public-key", handlers.GetPushPublicKey)
+			secured.GET("/push/debug", handlers.GetPushDebug)
 			secured.GET("/push/status", handlers.GetPushStatus)
 			secured.POST("/push/subscribe", handlers.SubscribePush)
 			secured.POST("/push/unsubscribe", handlers.UnsubscribePush)

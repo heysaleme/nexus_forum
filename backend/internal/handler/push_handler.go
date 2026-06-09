@@ -37,6 +37,14 @@ func (h *Handlers) SubscribePush(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+func (h *Handlers) GetPushDebug(c *gin.Context) {
+	uid, ok := getUserID(c)
+	if !ok {
+		return
+	}
+	c.JSON(http.StatusOK, h.PushService.VapidDebug(uid))
+}
+
 func (h *Handlers) GetPushStatus(c *gin.Context) {
 	uid, ok := getUserID(c)
 	if !ok {

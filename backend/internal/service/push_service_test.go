@@ -3,11 +3,16 @@ package service
 import (
 	"testing"
 
+	pushcfg "nexus-forum-backend/internal/push"
 	"nexus-forum-backend/internal/model"
 )
 
 func TestPushService_shouldSend_RespectsPreferences(t *testing.T) {
-	svc := NewPushService(nil, "pub", "priv", "mailto:t@e.com").(*pushService)
+	svc := NewPushService(nil, &pushcfg.Config{
+		PublicKey:  "pub",
+		PrivateKey: "priv",
+		Subscriber: "t@e.com",
+	}).(*pushService)
 	user := &model.User{
 		PushNotifyComments: false,
 		PushNotifyReplies:  true,

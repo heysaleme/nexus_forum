@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	pushcfg "nexus-forum-backend/internal/push"
 	"nexus-forum-backend/internal/model"
 	"nexus-forum-backend/internal/repository"
 	"nexus-forum-backend/internal/service"
@@ -36,7 +37,15 @@ func setupPushTest(t *testing.T) (*Handlers, *gorm.DB) {
 		t.Fatalf("seed user: %v", err)
 	}
 	pushRepo := repository.NewPushSubscriptionRepository(db)
-	pushSvc := service.NewPushService(pushRepo, "test-public", "test-private", "mailto:test@example.com")
+	pushSvc := service.NewPushService(pushRepo, &pushcfg.Config{
+		PublicKey:        "test-public",
+		PrivateKey:       "test-private",
+		Subscriber:       "test@example.com",
+		JWTSubject:       "mailto:test@example.com",
+		ConfiguredPublic: "test-public",
+		DerivedPublicKey: "test-public",
+		KeysMatch:        true,
+	})
 	h := &Handlers{
 		PushService: pushSvc,
 		UserService: service.NewUserService(

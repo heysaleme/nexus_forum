@@ -119,9 +119,9 @@ func LoadConfig() (*Config, error) {
 		SMTPFrom:           os.Getenv("SMTP_FROM"),
 		RedisURL:           os.Getenv("REDIS_URL"),
 		RabbitMQURL:        os.Getenv("RABBITMQ_URL"),
-		VAPIDPublic:        os.Getenv("VAPID_PUBLIC_KEY"),
-		VAPIDPrivate:       os.Getenv("VAPID_PRIVATE_KEY"),
-		VAPIDSubject:       envOr("VAPID_SUBJECT", envOr("VAPID_EMAIL", "mailto:admin@nexus-forum.local")),
+		VAPIDPublic:  strings.TrimSpace(os.Getenv("VAPID_PUBLIC_KEY")),
+		VAPIDPrivate: strings.TrimSpace(os.Getenv("VAPID_PRIVATE_KEY")),
+		VAPIDSubject: strings.TrimSpace(envOr("VAPID_SUBJECT", envOr("VAPID_EMAIL", "admin@nexus-forum.local"))),
 	}, nil
 }
 

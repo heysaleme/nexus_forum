@@ -4,9 +4,20 @@ import (
 	"fmt"
 	"log/slog"
 
+	pushcfg "nexus-forum-backend/internal/push"
 	"nexus-forum-backend/internal/model"
 	"nexus-forum-backend/internal/repository"
 )
+
+// VapidDebugInfo is returned by GET /api/push/debug.
+type VapidDebugInfo struct {
+	VapidPublicKey   string `json:"vapid_public_key"`
+	DerivedPublicKey string `json:"derived_public_key"`
+	KeysMatch        bool   `json:"keys_match"`
+	Subscriber       string `json:"subscriber"`
+	JWTSubject       string `json:"jwt_subject"`
+	Subscriptions    int64  `json:"subscriptions"`
+}
 
 type PushService interface {
 	Subscribe(userID uint, endpoint, p256dh, auth string) error
@@ -16,20 +27,42 @@ type PushService interface {
 	SendTest(user *model.User) ([]PushDeliveryResult, error)
 	HasSubscription(userID uint) (bool, error)
 	PublicKey() string
+	VapidDebug(userID uint) VapidDebugInfo
 }
 
 type pushService struct {
-	repo       repository.PushSubscriptionRepository
-	publicKey  string
-	privateKey string
-	subject    string
+	repo  repository.PushSubscriptionRepository
+	vapid *pushcfg.Config
 }
 
-func NewPushService(repo repository.PushSubscriptionRepository, publicKey, privateKey, subject string) PushService {
-	return &pushService{repo: repo, publicKey: publicKey, privateKey: privateKey, subject: subject}
+func NewPushService(repo repository.PushSubscriptionRepository, vapid *pushcfg.Config) PushService {
+	return &pushService{repo: repo, vapid: vapid}
 }
 
-func (s *pushService) PublicKey() string { return s.publicKey }
+func (s *pushService) PublicKey() string {
+	if s.vapid == nil {
+		return ""
+	}
+	return s.vapid.PublicKey
+}
+
+func (s *pushService) VapidDebug(userID uint) VapidDebugInfo {
+	info := VapidDebugInfo{}
+	if s.vapid != nil {
+		info.VapidPublicKey = s.vapid.ConfiguredPublic
+		info.DerivedPublicKey = s.vapid.DerivedPublicKey
+		info.KeysMatch = s.vapid.KeysMatch
+		info.Subscriber = s.vapid.Subscriber
+		info.JWTSubject = s.vapid.JWTSubject
+	}
+	if s.repo != nil {
+		subs, err := s.repo.ListByUser(userID)
+		if err == nil {
+			info.Subscriptions = int64(len(subs))
+		}
+	}
+	return info
+}
 
 func (s *pushService) Subscribe(userID uint, endpoint, p256dh, auth string) error {
 	slog.Info("push: subscription saved", "user_id", userID, "endpoint_host", endpointHost(endpoint))
@@ -41,7 +74,7 @@ func (s *pushService) Unsubscribe(userID uint, endpoint string) error {
 }
 
 func (s *pushService) shouldSend(user *model.User, notifType string) bool {
-	if user == nil || s.publicKey == "" || s.privateKey == "" {
+	if user == nil || s.vapid == nil || s.vapid.PublicKey == "" || s.vapid.PrivateKey == "" {
 		return false
 	}
 	switch notifType {
