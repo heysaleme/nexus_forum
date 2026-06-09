@@ -11,6 +11,7 @@ import (
 type EmailVerificationRepository interface {
 	Upsert(row *model.EmailVerification) error
 	GetValid(email, code string) (*model.EmailVerification, error)
+	GetValidByToken(token string) (*model.EmailVerification, error)
 	GetPendingByEmail(email string) (*model.EmailVerification, error)
 	DeleteByEmail(email string) error
 }
@@ -31,6 +32,16 @@ func (r *emailVerificationRepository) Upsert(row *model.EmailVerification) error
 func (r *emailVerificationRepository) GetValid(email, code string) (*model.EmailVerification, error) {
 	var row model.EmailVerification
 	err := r.db.Where("email = ? AND code = ? AND expires_at > ?", email, code, time.Now()).
+		First(&row).Error
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
+func (r *emailVerificationRepository) GetValidByToken(token string) (*model.EmailVerification, error) {
+	var row model.EmailVerification
+	err := r.db.Where("token = ? AND expires_at > ?", token, time.Now()).
 		First(&row).Error
 	if err != nil {
 		return nil, err

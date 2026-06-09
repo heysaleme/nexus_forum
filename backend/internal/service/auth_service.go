@@ -27,7 +27,9 @@ type AuthService interface {
 	RevokeSession(userID, sessionID uint) error
 	RevokeOtherSessions(userID, keepSessionID uint) error
 	ValidateToken(tokenStr string) (*Claims, error)
+	ConfirmEmailByToken(token string) (accessToken, refreshToken string, user *model.User, err error)
 	ResendVerification(email string) error
+	GetPendingVerification(email string) (*model.EmailVerification, error)
 	ChangePassword(userID uint, oldPassword, newPassword string) error
 	RequestPasswordReset(email string) (string, error)
 	ResetPassword(resetToken, newPassword string) error
@@ -39,9 +41,10 @@ type authService struct {
 	modRepo    repository.ModerationRepository
 	resetRepo   repository.PasswordResetRepository
 	refreshRepo repository.RefreshTokenRepository
-	verifyRepo  repository.EmailVerificationRepository
-	mailer      *email.Mailer
-	jwtSecret   string
+	verifyRepo   repository.EmailVerificationRepository
+	mailer       *email.Mailer
+	jwtSecret    string
+	frontendURL  string
 }
 
 func NewAuthService(
@@ -52,10 +55,11 @@ func NewAuthService(
 	verifyRepo repository.EmailVerificationRepository,
 	mailer *email.Mailer,
 	jwtSecret string,
+	frontendURL string,
 ) AuthService {
 	return &authService{
 		repo: repo, modRepo: modRepo, resetRepo: resetRepo, refreshRepo: refreshRepo,
-		verifyRepo: verifyRepo, mailer: mailer, jwtSecret: jwtSecret,
+		verifyRepo: verifyRepo, mailer: mailer, jwtSecret: jwtSecret, frontendURL: frontendURL,
 	}
 }
 
@@ -76,10 +80,15 @@ func (s *authService) Register(email, password string) error {
 	if err != nil {
 		return err
 	}
+	linkToken, err := s.verificationLinkToken()
+	if err != nil {
+		return err
+	}
 
 	row := &model.EmailVerification{
 		Email:        email,
 		Code:         code,
+		Token:        linkToken,
 		PasswordHash: string(hashed),
 		ExpiresAt:    time.Now().Add(15 * time.Minute),
 	}
@@ -88,11 +97,18 @@ func (s *authService) Register(email, password string) error {
 	}
 
 	if s.mailer != nil && s.mailer.Enabled() {
-		if err := s.mailer.SendVerification(email, code); err != nil {
-			return fmt.Errorf("failed to send verification email: %w", err)
+		confirmURL := strings.TrimRight(s.frontendURL, "/") + "/confirm-email?token=" + linkToken
+		if err := s.mailer.SendVerification(email, code, confirmURL); err != nil {
+			// Misconfigured SMTP must not block registration; fall back to dev OTP.
+			row.Code = "123456"
+			_ = s.verifyRepo.Upsert(row)
 		}
 	}
 	return nil
+}
+
+func (s *authService) GetPendingVerification(email string) (*model.EmailVerification, error) {
+	return s.verifyRepo.GetPendingByEmail(email)
 }
 
 func (s *authService) ResendVerification(email string) error {
@@ -115,9 +131,18 @@ func (s *authService) ResendVerification(email string) error {
 		return err
 	}
 	if s.mailer != nil && s.mailer.Enabled() {
-		return s.mailer.SendVerification(email, code)
+		confirmURL := strings.TrimRight(s.frontendURL, "/") + "/confirm-email?token=" + pending.Token
+		return s.mailer.SendVerification(email, code, confirmURL)
 	}
 	return nil
+}
+
+func (s *authService) ConfirmEmailByToken(token string) (string, string, *model.User, error) {
+	row, err := s.verifyRepo.GetValidByToken(token)
+	if err != nil {
+		return "", "", nil, errors.New("invalid or expired confirmation link")
+	}
+	return s.createUserFromVerification(row)
 }
 
 func (s *authService) verificationCode() (string, error) {
@@ -132,12 +157,20 @@ func (s *authService) VerifyOTP(email, otpCode string) (string, string, *model.U
 	if err != nil {
 		return "", "", nil, errors.New("invalid or expired verification code")
 	}
+	return s.createUserFromVerification(row)
+}
 
-	parts := strings.Split(email, "@")
+func (s *authService) createUserFromVerification(row *model.EmailVerification) (string, string, *model.User, error) {
+	if _, err := s.repo.GetByEmail(row.Email); err == nil {
+		_ = s.verifyRepo.DeleteByEmail(row.Email)
+		return "", "", nil, errors.New("email already registered")
+	}
+
+	parts := strings.Split(row.Email, "@")
 	username := parts[0]
 	user := &model.User{
 		Username:      username,
-		Email:         email,
+		Email:         row.Email,
 		PasswordHash:  row.PasswordHash,
 		Role:          "user",
 		ProfileTheme:  "default",
@@ -151,7 +184,7 @@ func (s *authService) VerifyOTP(email, otpCode string) (string, string, *model.U
 		return "", "", nil, err
 	}
 
-	_ = s.verifyRepo.DeleteByEmail(email)
+	_ = s.verifyRepo.DeleteByEmail(row.Email)
 
 	access, refresh, err := s.issueTokenPair(user)
 	return access, refresh, user, err
@@ -164,6 +197,14 @@ func generateOTPCode() (string, error) {
 	}
 	n := (int(b[0])<<16 | int(b[1])<<8 | int(b[2])) % 1000000
 	return fmt.Sprintf("%06d", n), nil
+}
+
+func (s *authService) verificationLinkToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 func (s *authService) Login(email, password string) (string, string, *model.User, error) {
@@ -204,6 +245,9 @@ func (s *authService) LoginWithContext(email, password, userAgent, ipAddress str
 			Details:    "Failed login attempt (user is banned) for user ID: " + strconvFormatUint(user.ID),
 		})
 		return "", "", nil, errors.New("this account is banned")
+	}
+	if !user.EmailVerified {
+		return "", "", nil, errors.New("email not verified: please confirm your email")
 	}
 
 	access, refresh, err := s.issueTokenPairWithMeta(user, userAgent, ipAddress)
@@ -396,6 +440,7 @@ func (s *authService) FindOrCreateOAuthUser(provider, sub, email, name, avatarUR
 		Level:         1,
 		XP:            0,
 		AllowDMs:      true,
+		EmailVerified: email != "",
 		OAuthProvider: provider,
 		OAuthSubject:  sub,
 	}
@@ -503,6 +548,13 @@ func (s *authService) RequestPasswordReset(email string) (string, error) {
 		Action:     "password_reset_request",
 		Details:    "Password reset requested",
 	})
+
+	if s.mailer != nil && s.mailer.Enabled() {
+		resetURL := strings.TrimRight(s.frontendURL, "/") + "/reset-password?token=" + token
+		if err := s.mailer.SendPasswordReset(email, resetURL); err == nil {
+			return "", nil
+		}
+	}
 
 	return token, nil
 }

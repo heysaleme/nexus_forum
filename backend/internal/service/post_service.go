@@ -16,7 +16,7 @@ type PostService interface {
 	List(sortSpec string, limit int, viewerID uint) ([]*model.Post, error)
 	ListFollowing(userID uint, sortSpec string, limit int) ([]*model.Post, error)
 	ListFollowingCommunities(userID uint, sortSpec string, limit int) ([]*model.Post, error)
-	PublishDueScheduled() (int64, error)
+	PublishDueScheduled() ([]*model.Post, error)
 	Filter(filter map[string]interface{}, sortSpec string, limit int, viewerID uint) ([]*model.Post, error)
 	Vote(userID, postID uint, value int) error
 	VotePoll(userID, postID uint, optionIndex int) error
@@ -140,7 +140,7 @@ func (s *postService) ListFollowingCommunities(userID uint, sortSpec string, lim
 	return s.repo.ListByCommunityMembership(userID, sortSpec, limit, userID)
 }
 
-func (s *postService) PublishDueScheduled() (int64, error) {
+func (s *postService) PublishDueScheduled() ([]*model.Post, error) {
 	return s.repo.PublishDueScheduled()
 }
 

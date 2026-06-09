@@ -27,6 +27,8 @@ func MaybeNotifyForNotification(mailer *Mailer, user *model.User, notif *model.N
 		allowed = user.EmailNotifyModeration
 	case "report_resolved", "report_rejected":
 		allowed = user.EmailNotifyReport
+	case "scheduled_published":
+		allowed = true
 	default:
 		return
 	}

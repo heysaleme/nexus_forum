@@ -8,11 +8,12 @@ import (
 )
 
 type Config struct {
-	Host     string
-	Port     string
-	Username string
-	Password string
-	From     string
+	Host        string
+	Port        string
+	Username    string
+	Password    string
+	From        string
+	FrontendURL string
 }
 
 type Mailer struct {
@@ -51,12 +52,32 @@ func (m *Mailer) Send(to, subject, body string) error {
 	return smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
 }
 
-func (m *Mailer) SendVerification(to, code string) error {
-	body := fmt.Sprintf(`<p>Your Nexus Forum verification code is:</p><h2>%s</h2><p>This code expires in 15 minutes.</p>`, code)
-	return m.Send(to, "Verify your Nexus Forum account", body)
+func (m *Mailer) SendVerification(to, code, confirmURL string) error {
+	body := fmt.Sprintf(`<p>Confirm your Nexus Forum account:</p>
+<p><a href="%s">Click here to confirm your email</a></p>
+<p>Or enter this code: <strong>%s</strong></p>
+<p>This link and code expire in 15 minutes.</p>`, confirmURL, code)
+	return m.Send(to, "Confirm your Nexus Forum account", body)
+}
+
+func (m *Mailer) SendPasswordReset(to, resetURL string) error {
+	body := fmt.Sprintf(`<p>Reset your Nexus Forum password:</p>
+<p><a href="%s">Click here to reset your password</a></p>
+<p>This link expires in 1 hour. If you did not request a reset, ignore this email.</p>`, resetURL)
+	return m.Send(to, "Reset your Nexus Forum password", body)
 }
 
 func (m *Mailer) SendNotification(to, subject, body string) error {
-	html := fmt.Sprintf(`<p>%s</p><p><a href="#">Open Nexus Forum</a></p>`, body)
+	frontend := strings.TrimRight(m.cfg.FrontendURL, "/")
+	if frontend == "" {
+		frontend = "http://localhost:5173"
+	}
+	html := fmt.Sprintf(`<p>%s</p><p><a href="%s">Open Nexus Forum</a></p>`, body, frontend)
 	return m.Send(to, subject, html)
+}
+
+func (m *Mailer) SendScheduledPublished(to, postTitle, postURL string) error {
+	body := fmt.Sprintf(`<p>Your scheduled post <strong>%s</strong> has been published.</p>
+<p><a href="%s">View post</a></p>`, postTitle, postURL)
+	return m.Send(to, "Your scheduled post is live", body)
 }

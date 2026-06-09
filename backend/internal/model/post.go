@@ -21,6 +21,7 @@ type Post struct {
 	MediaUrls    string `gorm:"type:text" json:"media_urls"`     // JSON array of strings
 	LinkUrl      string `json:"link_url"`
 	Tags         string `gorm:"type:text" json:"tags"` // JSON array of strings
+	SearchBlob   string `gorm:"type:text" json:"-"`    // normalized lowercase index for Unicode search
 	PollOptions  string `gorm:"type:text" json:"poll_options"`
 	PollVotes    string `gorm:"type:text" json:"poll_votes"`
 

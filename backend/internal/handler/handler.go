@@ -23,6 +23,7 @@ type Handlers struct {
 	WSHub           *WSHub
 	TurnstileSecret string // empty = Turnstile disabled
 	SMTPConfigured  bool
+	FrontendURL     string
 }
 
 func NewHandlers(
@@ -39,6 +40,7 @@ func NewHandlers(
 	wsHub *WSHub,
 	turnstileSecret string,
 	smtpConfigured bool,
+	frontendURL string,
 ) *Handlers {
 	return &Handlers{
 		AuthService:     auth,
@@ -54,6 +56,7 @@ func NewHandlers(
 		WSHub:           wsHub,
 		TurnstileSecret: turnstileSecret,
 		SMTPConfigured:  smtpConfigured,
+		FrontendURL:     frontendURL,
 	}
 }
 

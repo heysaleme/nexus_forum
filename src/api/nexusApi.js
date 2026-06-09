@@ -307,6 +307,13 @@ const auth = {
         persistSession(res);
         return res;
     },
+    async confirmEmail(token) {
+        const res = await request(`/auth/confirm-email?token=${encodeURIComponent(token)}`, {
+            method: 'GET',
+        });
+        persistSession(res);
+        return res;
+    },
     async resendOtp(email) {
         return request('/auth/resend-otp', {
             method: 'POST',

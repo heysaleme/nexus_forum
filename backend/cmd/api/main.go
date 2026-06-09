@@ -98,6 +98,7 @@ func main() {
 		&model.PasswordResetToken{},
 		&model.RefreshToken{},
 		&model.EmailVerification{},
+		&model.PostSearchToken{},
 	)
 	if err != nil {
 		log.Fatalf("failed to auto migrate tables: %v", err)
@@ -105,6 +106,7 @@ func main() {
 
 	// Data fix for existing follows
 	db.Exec("UPDATE user_follows SET status = 'accepted' WHERE status = '' OR status IS NULL")
+	db.Exec("UPDATE users SET email_verified = true WHERE email_verified = false")
 
 	if err := search.Init(db); err != nil {
 		logger.Warn("search index unavailable; falling back to LIKE search", "error", err)
@@ -114,8 +116,11 @@ func main() {
 				logger.Warn("search reindex failed", "error", err)
 			}
 		} else {
-			logger.Warn("FTS5 module unavailable in SQLite build; using LIKE fallback for search")
+			logger.Warn("FTS5 module unavailable in SQLite build; using Unicode token index for search")
 		}
+	}
+	if err := search.ReindexPublishedPosts(db); err != nil {
+		logger.Warn("post search reindex failed", "error", err)
 	}
 
 	logger.Info("database auto-migrations complete")
@@ -141,14 +146,15 @@ func main() {
 	refreshRepo := repository.NewRefreshTokenRepository(db)
 	verifyRepo := repository.NewEmailVerificationRepository(db)
 	mailer := email.NewMailer(email.Config{
-		Host:     cfg.SMTPHost,
-		Port:     cfg.SMTPPort,
-		Username: cfg.SMTPUsername,
-		Password: cfg.SMTPPassword,
-		From:     cfg.SMTPFrom,
+		Host:        cfg.SMTPHost,
+		Port:        cfg.SMTPPort,
+		Username:    cfg.SMTPUsername,
+		Password:    cfg.SMTPPassword,
+		From:        cfg.SMTPFrom,
+		FrontendURL: cfg.FrontendURL,
 	})
 
-	authService := service.NewAuthService(userRepo, modRepo, resetRepo, refreshRepo, verifyRepo, mailer, cfg.JWTSecret)
+	authService := service.NewAuthService(userRepo, modRepo, resetRepo, refreshRepo, verifyRepo, mailer, cfg.JWTSecret, cfg.FrontendURL)
 	userService := service.NewUserService(userRepo, followRepo, notifRepo, modRepo)
 	commService := service.NewCommunityService(commRepo, userRepo)
 	postService := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, savedRepo, notifRepo)
@@ -201,7 +207,7 @@ func main() {
 		}
 	}
 
-	handlers := handler.NewHandlers(authService, userService, commService, postService, commentService, chatService, notifService, modService, analyticsService, uploadService, wsHub, cfg.TurnstileSecret, mailer.Enabled())
+	handlers := handler.NewHandlers(authService, userService, commService, postService, commentService, chatService, notifService, modService, analyticsService, uploadService, wsHub, cfg.TurnstileSecret, mailer.Enabled(), cfg.FrontendURL)
 
 	// OAuth handler config
 	oauthCfg := handler.OAuthConfig{
@@ -239,6 +245,8 @@ func main() {
 		// Auth endpoints
 		api.POST("/auth/register", authRateLimit, handlers.Register)
 		api.POST("/auth/verify-otp", authRateLimit, handlers.VerifyOTP)
+		api.GET("/auth/confirm-email", handlers.ConfirmEmail)
+		api.POST("/auth/confirm-email", authRateLimit, handlers.ConfirmEmail)
 		api.POST("/auth/resend-otp", authRateLimit, handlers.ResendOTP)
 		api.POST("/auth/login", authRateLimit, handlers.Login)
 		api.POST("/auth/forgot-password", authRateLimit, handlers.ForgotPassword)
@@ -386,10 +394,22 @@ func main() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
-			if n, err := postService.PublishDueScheduled(); err != nil {
+			published, err := postService.PublishDueScheduled()
+			if err != nil {
 				logger.Warn("scheduled publish failed", "error", err)
-			} else if n > 0 {
-				logger.Info("published scheduled posts", "count", n)
+				continue
+			}
+			if len(published) > 0 {
+				logger.Info("published scheduled posts", "count", len(published))
+			}
+			for _, p := range published {
+				notif := &model.Notification{
+					UserID: p.AuthorID,
+					Type:   "scheduled_published",
+					Title:  "Отложенный пост опубликован",
+					Body:   p.Title,
+				}
+				_ = notifRepo.Create(notif)
 			}
 		}
 	}()

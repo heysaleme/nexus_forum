@@ -28,6 +28,7 @@ import Register from '@/pages/Register';
 import ForgotPassword from '@/pages/ForgotPassword';
 import ResetPassword from '@/pages/ResetPassword';
 import OAuthCallback from '@/pages/OAuthCallback';
+import ConfirmEmail from '@/pages/ConfirmEmail';
 import TurnstileModal from '@/components/TurnstileModal';
 
 import {
@@ -94,6 +95,7 @@ const AuthenticatedApp = () => {
                 </Route>
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
+                <Route path="/confirm-email" element={<ConfirmEmail />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/auth/callback/google" element={<OAuthCallback provider="google" />} />

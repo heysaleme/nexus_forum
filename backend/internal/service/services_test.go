@@ -64,6 +64,7 @@ func newTestAuthService(db *gorm.DB, secret string) service.AuthService {
 		repository.NewEmailVerificationRepository(db),
 		email.NewMailer(email.Config{}),
 		secret,
+		"http://localhost:5173",
 	)
 }
 

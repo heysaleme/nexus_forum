@@ -20,7 +20,7 @@ type PostRepository interface {
 	ListByCommunityMembership(userID uint, sortSpec string, limit int, viewerID uint) ([]*model.Post, error)
 	Filter(filter map[string]interface{}, sortSpec string, limit int, viewerID uint) ([]*model.Post, error)
 	Search(query string, limit int, viewerID uint) ([]*model.Post, error)
-	PublishDueScheduled() (int64, error)
+	PublishDueScheduled() ([]*model.Post, error)
 	IncrementViews(id uint) error
 }
 
@@ -37,6 +37,7 @@ func (r *postRepository) Create(post *model.Post) error {
 		return err
 	}
 	if post.Status == "published" {
+		_ = search.SyncPostIndex(r.db, post.ID, post.Title, post.Content, post.Tags)
 		_ = search.IndexPost(r.db, post.ID, post.Title, post.Content, post.Tags)
 	}
 	return nil
@@ -57,8 +58,10 @@ func (r *postRepository) Update(post *model.Post) error {
 		return err
 	}
 	if post.Status == "published" {
+		_ = search.SyncPostIndex(r.db, post.ID, post.Title, post.Content, post.Tags)
 		_ = search.IndexPost(r.db, post.ID, post.Title, post.Content, post.Tags)
 	} else {
+		_ = search.DeletePostIndex(r.db, post.ID)
 		_ = search.DeletePost(r.db, post.ID)
 	}
 	return nil
@@ -68,6 +71,7 @@ func (r *postRepository) Delete(id uint) error {
 	if err := r.db.Delete(&model.Post{}, id).Error; err != nil {
 		return err
 	}
+	_ = search.DeletePostIndex(r.db, id)
 	_ = search.DeletePost(r.db, id)
 	return nil
 }
@@ -151,66 +155,50 @@ func (r *postRepository) Filter(filter map[string]interface{}, sortSpec string, 
 
 func (r *postRepository) Search(query string, limit int, viewerID uint) ([]*model.Post, error) {
 	var posts []*model.Post
-	dialect := r.db.Dialector.Name()
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return posts, nil
 	}
-
-	var q *gorm.DB
-	if dialect == "postgres" {
-		q = r.db.Where(
-			"status = ? AND to_tsvector('simple', coalesce(title,'') || ' ' || coalesce(content,'') || ' ' || coalesce(tags,'')) @@ plainto_tsquery('simple', ?)",
-			"published", query,
-		)
-	} else if search.FTSEnabled() {
-		ftsQuery := search.BuildFTSQuery(query)
-		if ftsQuery != "" {
-			sub := r.db.Table("posts_fts").Select("rowid").Where("posts_fts MATCH ?", ftsQuery)
-			q = r.db.Where("status = ? AND id IN (?)", "published", sub)
-		} else {
-			likePattern := "%" + escapeLikePattern(strings.ToLower(query)) + "%"
-			q = r.db.Where(
-				"status = ? AND (LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(content) LIKE ? ESCAPE '\\' OR LOWER(tags) LIKE ? ESCAPE '\\')",
-				"published", likePattern, likePattern, likePattern,
-			)
-		}
-	} else {
-		// SQLite LOWER() does not fold Cyrillic; use case-sensitive LIKE for Unicode text.
-		likePattern := "%" + escapeLikePattern(query) + "%"
-		likeLower := "%" + escapeLikePattern(strings.ToLower(query)) + "%"
-		q = r.db.Where(
-			"status = ? AND (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\' OR LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(content) LIKE ? ESCAPE '\\')",
-			"published", likePattern, likePattern, likePattern, likeLower, likeLower,
-		)
+	if limit <= 0 {
+		limit = 30
 	}
-	q = r.applyShadowFilter(q, viewerID)
 
+	ids, err := search.PostIDsMatching(r.db, query, limit*2)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return posts, nil
+	}
+
+	q := r.db.Omit("content").Where("status = ? AND id IN ?", "published", ids)
+	q = r.applyShadowFilter(q, viewerID)
 	if limit > 0 {
 		q = q.Limit(limit)
 	}
-	err := q.Omit("content").Find(&posts).Error
+	err = q.Find(&posts).Error
 	if err == nil {
 		r.hydratePostFields(posts)
 	}
 	return posts, err
 }
 
-func (r *postRepository) PublishDueScheduled() (int64, error) {
+func (r *postRepository) PublishDueScheduled() ([]*model.Post, error) {
 	now := time.Now()
 	var due []*model.Post
 	if err := r.db.Where("status = ? AND publish_at IS NOT NULL AND publish_at <= ?", "scheduled", now).Find(&due).Error; err != nil {
-		return 0, err
+		return nil, err
 	}
-	var published int64
+	published := make([]*model.Post, 0, len(due))
 	for _, p := range due {
 		p.Status = "published"
 		p.PublishAt = nil
 		if err := r.db.Save(p).Error; err != nil {
 			continue
 		}
+		_ = search.SyncPostIndex(r.db, p.ID, p.Title, p.Content, p.Tags)
 		_ = search.IndexPost(r.db, p.ID, p.Title, p.Content, p.Tags)
-		published++
+		published = append(published, p)
 	}
 	return published, nil
 }

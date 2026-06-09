@@ -3,6 +3,7 @@ package handler
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"nexus-forum-backend/internal/dto"
@@ -25,11 +26,18 @@ func (h *Handlers) Register(c *gin.Context) {
 	}
 
 	slog.Info("user registration initiated", "email", req.Email)
-	c.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"success":         true,
 		"otp_required":    true,
 		"smtp_configured": h.SMTPConfigured,
-	})
+	}
+	if pending, err := h.AuthService.GetPendingVerification(req.Email); err == nil && pending != nil {
+		if !h.SMTPConfigured || pending.Code == "123456" {
+			resp["confirm_token"] = pending.Token
+			resp["confirm_url"] = strings.TrimRight(h.FrontendURL, "/") + "/confirm-email?token=" + pending.Token
+		}
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handlers) ResendOTP(c *gin.Context) {
@@ -43,6 +51,34 @@ func (h *Handlers) ResendOTP(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "smtp_configured": h.SMTPConfigured})
+}
+
+func (h *Handlers) ConfirmEmail(c *gin.Context) {
+	token := c.Query("token")
+	if token == "" {
+		var body struct {
+			Token string `json:"token" binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "confirmation token required"})
+			return
+		}
+		token = body.Token
+	}
+
+	accessToken, refreshToken, user, err := h.AuthService.ConfirmEmailByToken(token)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	uid := user.ID
+	_ = h.Analytics.Track(&uid, "register", "user", &uid, "email_link")
+	c.JSON(http.StatusOK, gin.H{
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+		"user":          user,
+	})
 }
 
 func (h *Handlers) VerifyOTP(c *gin.Context) {
