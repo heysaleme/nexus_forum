@@ -3,10 +3,12 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
+	"time"
+
 	"nexus-forum-backend/internal/dto"
 	"nexus-forum-backend/internal/middleware"
 	"nexus-forum-backend/internal/model"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -65,12 +67,29 @@ func (h *Handlers) CreatePost(c *gin.Context) {
 		pollBytes, _ := json.Marshal(req.PollOptions)
 		pollOptionsStr = string(pollBytes)
 	}
+	status := "published"
+	if req.Status != nil && *req.Status == "draft" {
+		status = "draft"
+		isShadowContent = false
+	}
+	var publishAt *time.Time
+	if req.PublishAt != nil && *req.PublishAt != "" {
+		if t, err := time.Parse(time.RFC3339, *req.PublishAt); err == nil && t.After(time.Now()) {
+			status = "scheduled"
+			publishAt = &t
+			isShadowContent = false
+		}
+	}
+	if req.Status != nil && *req.Status == "scheduled" && publishAt != nil {
+		status = "scheduled"
+	}
 	post := &model.Post{
 		CommunityID:     req.CommunityID,
 		AuthorID:        uid,
 		Title:           req.Title,
 		Content:         req.Content,
 		Type:            req.Type,
+		Status:          status,
 		MediaUrls:       string(mediaBytes),
 		LinkUrl:         req.LinkUrl,
 		Tags:            string(tagsBytes),
@@ -78,6 +97,7 @@ func (h *Handlers) CreatePost(c *gin.Context) {
 		IsNSFW:          req.IsNSFW != nil && *req.IsNSFW,
 		IsSpoiler:       req.IsSpoiler != nil && *req.IsSpoiler,
 		IsShadowContent: isShadowContent,
+		PublishAt:       publishAt,
 	}
 	err := h.PostService.Create(post)
 	if err != nil {
@@ -94,6 +114,15 @@ func (h *Handlers) GetPostByID(c *gin.Context) {
 	}
 	post, err := h.PostService.GetByID(id)
 	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "post not found"})
+		return
+	}
+	reqUserID, isAuthenticated := getOptionalUserID(c, h.AuthService)
+	if post.Status == "draft" && (!isAuthenticated || reqUserID != post.AuthorID) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "post not found"})
+		return
+	}
+	if post.Status == "removed" {
 		c.JSON(http.StatusNotFound, gin.H{"error": "post not found"})
 		return
 	}
@@ -117,7 +146,14 @@ func (h *Handlers) GetPostByID(c *gin.Context) {
 			return
 		}
 	}
-	userID, authenticated := getOptionalUserID(c, h.AuthService)
+	if author.IsShadowBanned || post.IsShadowContent {
+		if !isAuthenticated || reqUserID != post.AuthorID {
+			c.JSON(http.StatusNotFound, gin.H{"error": "post not found"})
+			return
+		}
+	}
+	userID := reqUserID
+	authenticated := isAuthenticated
 	if authenticated {
 		vote, err := h.PostService.GetVote(userID, post.ID)
 		if err == nil {
@@ -139,6 +175,9 @@ func (h *Handlers) ListPosts(c *gin.Context) {
 		if err == nil {
 			filter["community_id"] = uint(commID)
 		}
+	}
+	if statusStr := c.Query("status"); statusStr != "" {
+		filter["status"] = statusStr
 	}
 	if authorIDStr := c.Query("author_id"); authorIDStr != "" {
 		authorID, err := strconv.ParseUint(authorIDStr, 10, 32)
@@ -174,11 +213,19 @@ func (h *Handlers) ListPosts(c *gin.Context) {
 		viewerID = 0
 	}
 
-	if len(filter) > 1 {
-		posts, err = h.PostService.Filter(filter, sortSpec, 50, viewerID)
-	} else {
-		posts, err = h.PostService.List(sortSpec, 50, viewerID)
+	if statusVal, ok := filter["status"].(string); ok && (statusVal == "draft" || statusVal == "scheduled") {
+		if !authenticated || filter["author_id"] == nil || filter["author_id"].(uint) != viewerID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "cannot list private posts for another user"})
+			return
+		}
 	}
+	limit := 50
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+	posts, err = h.PostService.Filter(filter, sortSpec, limit, viewerID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -200,7 +247,36 @@ func (h *Handlers) ListFollowingPosts(c *gin.Context) {
 	}
 
 	sortSpec := c.Query("sort")
-	posts, err := h.PostService.ListFollowing(userID, sortSpec, 50)
+	limit := 50
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+	posts, err := h.PostService.ListFollowing(userID, sortSpec, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	applyPostVotes(posts, userID, h.PostService)
+	c.JSON(http.StatusOK, posts)
+}
+
+func (h *Handlers) ListFollowingCommunityPosts(c *gin.Context) {
+	userID, ok := getUserID(c)
+	if !ok {
+		return
+	}
+
+	sortSpec := c.Query("sort")
+	limit := 50
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+	posts, err := h.PostService.ListFollowingCommunities(userID, sortSpec, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -243,6 +319,27 @@ func (h *Handlers) UpdatePost(c *gin.Context) {
 				post.Content = s
 			}
 		}
+		if v, ok := req["type"]; ok {
+			if s, ok := v.(string); ok {
+				post.Type = s
+			}
+		}
+		if v, ok := req["community_id"]; ok {
+			if f, ok := v.(float64); ok {
+				post.CommunityID = uint(f)
+			}
+		}
+		if v, ok := req["media_urls"]; ok {
+			if media, ok := v.([]interface{}); ok {
+				mediaBytes, _ := json.Marshal(media)
+				post.MediaUrls = string(mediaBytes)
+			}
+		}
+		if v, ok := req["link_url"]; ok {
+			if s, ok := v.(string); ok {
+				post.LinkUrl = s
+			}
+		}
 		if v, ok := req["is_nsfw"]; ok {
 			if b, ok := v.(bool); ok {
 				post.IsNSFW = b
@@ -251,6 +348,34 @@ func (h *Handlers) UpdatePost(c *gin.Context) {
 		if v, ok := req["is_spoiler"]; ok {
 			if b, ok := v.(bool); ok {
 				post.IsSpoiler = b
+			}
+		}
+		if v, ok := req["status"]; ok {
+			if s, ok := v.(string); ok {
+				if s == "draft" || s == "published" || s == "scheduled" {
+					post.Status = s
+				}
+			}
+		}
+		if v, ok := req["publish_at"]; ok {
+			if s, ok := v.(string); ok && s != "" {
+				if t, err := time.Parse(time.RFC3339, s); err == nil {
+					post.PublishAt = &t
+					if t.After(time.Now()) {
+						post.Status = "scheduled"
+					}
+				}
+			} else if v == nil {
+				post.PublishAt = nil
+				if post.Status == "scheduled" {
+					post.Status = "published"
+				}
+			}
+		}
+		if v, ok := req["tags"]; ok {
+			if tags, ok := v.([]interface{}); ok {
+				tagBytes, _ := json.Marshal(tags)
+				post.Tags = string(tagBytes)
 			}
 		}
 	}

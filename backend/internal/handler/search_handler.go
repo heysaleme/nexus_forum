@@ -20,9 +20,26 @@ func (h *Handlers) Search(c *gin.Context) {
 		viewerID = reqUserID
 	}
 
-	posts, _ := h.PostService.Search(query, 30, viewerID)
-	communities, _ := h.CommService.Search(query, 30)
-	users, _ := h.UserService.Search(query, 100)
+	if query == "" {
+		c.JSON(http.StatusOK, gin.H{"posts": []*model.Post{}, "communities": []*model.Community{}, "users": []*model.User{}})
+		return
+	}
+
+	posts, err := h.PostService.Search(query, 30, viewerID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	communities, err := h.CommService.Search(query, 30)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	users, err := h.UserService.Search(query, 100)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
 	type SearchResults struct {
 		Posts       []*model.Post      `json:"posts"`

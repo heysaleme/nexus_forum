@@ -33,6 +33,8 @@ export default function Settings() {
     const [profile, setProfile] = useState({
         username: '', bio: '', avatar_url: '', banner_url: '',
         profile_theme: 'default', title: '', allow_dms: true, is_private: false,
+        email_notify_reply: true, email_notify_mention: true, email_notify_follow: true,
+        email_notify_moderation: true, email_notify_report: true,
     });
 
     const [pendingRequests, setPendingRequests] = useState([]);
@@ -42,6 +44,8 @@ export default function Settings() {
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [changingPassword, setChangingPassword] = useState(false);
+    const [sessions, setSessions] = useState([]);
+    const [loadingSessions, setLoadingSessions] = useState(false);
 
     const loadPendingRequests = async () => {
         if (!user || !user.is_private) return;
@@ -66,12 +70,51 @@ export default function Settings() {
                 title: user.title || '',
                 allow_dms: user.allow_dms !== false,
                 is_private: user.is_private || false,
+                email_notify_reply: user.email_notify_reply !== false,
+                email_notify_mention: user.email_notify_mention !== false,
+                email_notify_follow: user.email_notify_follow !== false,
+                email_notify_moderation: user.email_notify_moderation !== false,
+                email_notify_report: user.email_notify_report !== false,
             });
             if (user.is_private) {
                 loadPendingRequests();
             }
+            loadSessions();
         }
     }, [user]);
+
+    const loadSessions = async () => {
+        if (!user) return;
+        setLoadingSessions(true);
+        try {
+            const data = await nexusApi.auth.listSessions();
+            setSessions(Array.isArray(data) ? data : []);
+        } catch {
+            setSessions([]);
+        } finally {
+            setLoadingSessions(false);
+        }
+    };
+
+    const handleRevokeSession = async (sessionId) => {
+        try {
+            await nexusApi.auth.revokeSession(sessionId);
+            toast({ title: 'Сессия завершена' });
+            loadSessions();
+        } catch {
+            toast({ title: 'Не удалось завершить сессию', variant: 'destructive' });
+        }
+    };
+
+    const handleRevokeOtherSessions = async () => {
+        try {
+            await nexusApi.auth.revokeOtherSessions();
+            toast({ title: 'Другие устройства отключены' });
+            loadSessions();
+        } catch {
+            toast({ title: 'Не удалось отключить устройства', variant: 'destructive' });
+        }
+    };
 
     const handleAcceptRequest = async (followerId) => {
         try {
@@ -178,7 +221,7 @@ export default function Settings() {
                 <TabsList className="bg-muted/50 rounded-xl p-1 mb-4">
                     <TabsTrigger value="profile" className="rounded-lg text-xs gap-1.5"><User className="w-3.5 h-3.5" />Профиль</TabsTrigger>
                     <TabsTrigger value="theme" className="rounded-lg text-xs gap-1.5"><Palette className="w-3.5 h-3.5" />Оформление</TabsTrigger>
-                    <TabsTrigger value="privacy" className="rounded-lg text-xs gap-1.5"><Lock className="w-3.5 h-3.5" />Приватность</TabsTrigger>
+                    <TabsTrigger value="privacy" className="rounded-lg text-xs gap-1.5"><Lock className="w-3.5 h-3.5" />Приватность и email</TabsTrigger>
                 </TabsList>
 
                 {/* Profile tab */}
@@ -271,6 +314,25 @@ export default function Settings() {
                                 />
                             </div>
                         ))}
+                        <div className="border-t border-border/40 pt-4 space-y-3">
+                            <h4 className="text-sm font-bold">Email-уведомления</h4>
+                            <p className="text-xs text-muted-foreground">Требуется настройка SMTP на сервере (см. backend/.env.example)</p>
+                            {[
+                                { key: 'email_notify_reply', label: 'Ответы на комментарии' },
+                                { key: 'email_notify_mention', label: 'Упоминания' },
+                                { key: 'email_notify_follow', label: 'Новые подписчики' },
+                                { key: 'email_notify_moderation', label: 'Ответы модераторов' },
+                                { key: 'email_notify_report', label: 'Решённые жалобы' },
+                            ].map(({ key, label }) => (
+                                <div key={key} className="flex items-center justify-between py-1">
+                                    <p className="text-sm">{label}</p>
+                                    <Switch
+                                        checked={profile[key]}
+                                        onCheckedChange={val => setProfile(p => ({ ...p, [key]: val }))}
+                                    />
+                                </div>
+                            ))}
+                        </div>
                         <Button onClick={handleSave} disabled={saving} className="w-full nexus-gradient border-0 text-white rounded-xl h-10 font-bold shadow-nexus">
                             {saving ? <LoadingSpinner size="sm" /> : 'Сохранить'}
                         </Button>
@@ -332,6 +394,35 @@ export default function Settings() {
                             )}
                         </div>
                     )}
+
+                    <div className="nexus-card p-4 mt-4 space-y-3">
+                        <h3 className="font-bold text-sm mb-1">Активные сессии</h3>
+                        {loadingSessions ? (
+                            <LoadingSpinner size="sm" className="py-4" />
+                        ) : sessions.length === 0 ? (
+                            <p className="text-xs text-muted-foreground">Нет активных сессий</p>
+                        ) : (
+                            <div className="space-y-2 max-h-48 overflow-y-auto">
+                                {sessions.map((s) => (
+                                    <div key={s.id} className="flex items-start justify-between gap-2 p-2 rounded-xl bg-muted/30 text-xs">
+                                        <div className="min-w-0">
+                                            <p className="font-semibold truncate">{s.user_agent || 'Неизвестное устройство'}</p>
+                                            <p className="text-muted-foreground">{s.ip_address || 'IP неизвестен'}</p>
+                                            <p className="text-[10px] text-muted-foreground">до {new Date(s.expires_at).toLocaleString()}</p>
+                                        </div>
+                                        <Button size="sm" variant="outline" className="h-7 text-[10px] shrink-0" onClick={() => handleRevokeSession(s.id)}>
+                                            Завершить
+                                        </Button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        {sessions.length > 1 && (
+                            <Button variant="outline" size="sm" className="w-full rounded-xl h-8 text-xs" onClick={handleRevokeOtherSessions}>
+                                Выйти на всех других устройствах
+                            </Button>
+                        )}
+                    </div>
 
                     <div className="nexus-card p-4 mt-4 space-y-4">
                         <h3 className="font-bold text-sm mb-1">Смена пароля</h3>

@@ -10,6 +10,7 @@ type UserService interface {
 	GetByID(id uint) (*model.User, error)
 	GetByIDs(ids []uint) (map[uint]*model.User, error)
 	UpdateProfile(userID uint, req model.User) (*model.User, error)
+	Save(user *model.User) error
 	UpdateUser(actorID, userID uint, role string, isBanned *bool) (*model.User, error)
 	IsFollowing(followerID, followingID uint) (bool, error)
 	GetFollowers(userID uint) ([]*model.User, error)
@@ -82,6 +83,10 @@ func (s *userService) UpdateProfile(userID uint, req model.User) (*model.User, e
 
 	err = s.repo.Update(user)
 	return user, err
+}
+
+func (s *userService) Save(user *model.User) error {
+	return s.repo.Update(user)
 }
 
 func (s *userService) Follow(followerID, followingID uint) error {

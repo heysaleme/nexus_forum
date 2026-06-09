@@ -33,6 +33,15 @@ type UpdateProfileRequest struct {
 	ProfileTheme string `json:"profile_theme"`
 	AllowDMs     *bool  `json:"allow_dms"`
 	IsPrivate    *bool  `json:"is_private"`
+	EmailNotifyReply      *bool `json:"email_notify_reply"`
+	EmailNotifyMention    *bool `json:"email_notify_mention"`
+	EmailNotifyFollow     *bool `json:"email_notify_follow"`
+	EmailNotifyModeration *bool `json:"email_notify_moderation"`
+	EmailNotifyReport     *bool `json:"email_notify_report"`
+}
+
+type ResendOTPRequest struct {
+	Email string `json:"email" binding:"required,email"`
 }
 
 type CreateCommunityRequest struct {
@@ -56,6 +65,8 @@ type CreatePostRequest struct {
 	PollOptions interface{} `json:"poll_options"` // JSON representation or options struct
 	IsNSFW      *bool       `json:"is_nsfw"`
 	IsSpoiler   *bool       `json:"is_spoiler"`
+	Status      *string     `json:"status"` // "draft", "published", or "scheduled"
+	PublishAt   *string     `json:"publish_at"` // RFC3339
 }
 
 type CreateCommentRequest struct {

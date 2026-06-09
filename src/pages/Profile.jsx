@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { nexusApi } from '@/api/nexusApi';
 import { useAuth } from '@/lib/AuthContext';
 import PostCard from '@/components/feed/PostCard';
@@ -10,10 +10,11 @@ import ReportModal from '@/components/ui/ReportModal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { User, Star, FileText, Bookmark, Trophy, Settings, UserPlus, UserMinus, Clock, Flag } from 'lucide-react';
+import { User, Star, FileText, Bookmark, Trophy, Settings, UserPlus, UserMinus, Clock, Flag, EyeOff } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useToast } from '@/components/ui/use-toast';
 import { useNavigate } from 'react-router-dom';
+import { isOwnProfile } from '@/lib/profileLink';
 
 const LEVEL_COLORS = ['bg-gray-400', 'bg-blue-400', 'bg-green-400', 'bg-yellow-400', 'bg-orange-400', 'bg-red-400', 'bg-purple-500', 'bg-pink-500', 'bg-indigo-500', 'bg-cyan-500'];
 
@@ -40,15 +41,19 @@ const THEME_GRADIENTS = {
 
 export default function Profile() {
     const { id } = useParams();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const activeTab = searchParams.get('tab') || 'posts';
     const { user: currentUser, logout } = useAuth();
     const { toast } = useToast();
     const navigate = useNavigate();
 
     const targetId = id || currentUser?.id;
-    const isOwn = !id || id === currentUser?.id;
+    const isOwn = !id || (currentUser && isOwnProfile(id, currentUser.id));
 
     const [profileUser, setProfileUser] = useState(null);
     const [posts, setPosts] = useState([]);
+    const [drafts, setDrafts] = useState([]);
+    const [scheduled, setScheduled] = useState([]);
     const [savedPosts, setSavedPosts] = useState([]);
     const [achievements, setAchievements] = useState([]);
     const [isFollowing, setIsFollowing] = useState(false);
@@ -60,21 +65,33 @@ export default function Profile() {
     const [followersModalTab, setFollowersModalTab] = useState('followers');
 
     useEffect(() => {
+        if (id && currentUser && isOwnProfile(id, currentUser.id)) {
+            navigate(`/profile${searchParams.toString() ? `?${searchParams.toString()}` : ''}`, { replace: true });
+        }
+    }, [id, currentUser, navigate, searchParams]);
+
+    useEffect(() => {
         if (targetId) loadProfile();
-    }, [targetId, currentUser]);
+    }, [targetId, currentUser, isOwn]);
 
     const loadProfile = async () => {
         setLoading(true);
         try {
-            const [users, userPosts, userAchievements] = await Promise.all([
-                nexusApi.entities.User.filter({ id: targetId }),
-                nexusApi.entities.Post.filter({ author_id: targetId, status: 'published' }, '-created_date', 10),
-                nexusApi.entities.Achievement.filter({ user_id: targetId }).catch(() => []),
+            const ownProfile = isOwn;
+            const authorId = Number(targetId);
+            const [users, userPosts, userDrafts, userScheduled, userAchievements] = await Promise.all([
+                nexusApi.entities.User.filter({ id: authorId }),
+                nexusApi.entities.Post.filter({ author_id: authorId, status: 'published' }, '-created_date', 10),
+                ownProfile ? nexusApi.entities.Post.filter({ author_id: authorId, status: 'draft' }, '-created_date', 20) : Promise.resolve([]),
+                ownProfile ? nexusApi.entities.Post.filter({ author_id: authorId, status: 'scheduled' }, '-created_date', 20) : Promise.resolve([]),
+                nexusApi.entities.Achievement.filter({ user_id: authorId }).catch(() => []),
             ]);
 
             if (users[0]) setProfileUser(users[0]);
             else if (targetId === currentUser?.id) setProfileUser(currentUser);
             setPosts((userPosts || []).filter((p) => p?.id && p.status !== 'removed'));
+            setDrafts((userDrafts || []).filter((p) => p?.id));
+            setScheduled((userScheduled || []).filter((p) => p?.id));
             setAchievements(userAchievements || []);
 
             if (!isOwn && currentUser) {
@@ -134,16 +151,39 @@ export default function Profile() {
         }
     };
 
+    const canModerate = currentUser && (currentUser.role === 'admin' || currentUser.role === 'moderator') && !isOwn;
+
     const handleBanUser = async () => {
         const target = profileUser || currentUser;
         if (!target?.id) return;
         try {
             const nextBanned = !target.is_banned;
-            await nexusApi.entities.User.update(target.id, { is_banned: nextBanned });
+            if (nextBanned) {
+                await nexusApi.entities.Moderation.banUser(target.id);
+            } else {
+                await nexusApi.entities.Moderation.unbanUser(target.id);
+            }
             setProfileUser((prev) => (prev ? { ...prev, is_banned: nextBanned } : prev));
             toast({ title: nextBanned ? '🚫 Пользователь заблокирован' : '✅ Пользователь разблокирован' });
         } catch {
             toast({ title: 'Не удалось обновить блокировку', variant: 'destructive' });
+        }
+    };
+
+    const handleShadowBanUser = async () => {
+        const target = profileUser;
+        if (!target?.id) return;
+        try {
+            const nextShadow = !target.is_shadow_banned;
+            if (nextShadow) {
+                await nexusApi.entities.Moderation.shadowBanUser(target.id);
+            } else {
+                await nexusApi.entities.Moderation.unshadowBanUser(target.id);
+            }
+            setProfileUser((prev) => (prev ? { ...prev, is_shadow_banned: nextShadow } : prev));
+            toast({ title: nextShadow ? '🌑 Теневой бан применён' : '👁️ Теневой бан снят' });
+        } catch {
+            toast({ title: 'Не удалось обновить теневой бан', variant: 'destructive' });
         }
     };
 
@@ -195,6 +235,15 @@ export default function Profile() {
                 <h1 className="text-lg font-display font-black text-foreground text-center">
                     {displayUser?.full_name || displayUser?.username || 'Пользователь'}
                 </h1>
+                {canModerate && (
+                    <div className="flex flex-wrap gap-1.5 justify-center mb-1">
+                        {displayUser?.is_banned && <Badge className="bg-destructive/10 text-destructive text-[9px] border-0">Заблокирован</Badge>}
+                        {displayUser?.is_shadow_banned && <Badge className="bg-orange-100 text-orange-700 text-[9px] border-0">Теневой бан</Badge>}
+                        {!displayUser?.is_banned && !displayUser?.is_shadow_banned && (
+                            <Badge className="bg-green-100 text-green-700 text-[9px] border-0">Активен</Badge>
+                        )}
+                    </div>
+                )}
                 <div className="w-32 sm:w-36 mb-2">
                     <div className="flex items-center justify-between mb-1">
                         <span className="text-[10px] font-bold text-foreground">Уровень {level}</span>
@@ -254,15 +303,26 @@ export default function Profile() {
                                 Пожаловаться
                             </Button>
                         )}
-                        {currentUser && (currentUser.role === 'admin' || currentUser.role === 'moderator') && (
-                            <Button
-                                onClick={handleBanUser}
-                                size="sm"
-                                variant={displayUser.is_banned ? 'outline' : 'destructive'}
-                                className="rounded-xl h-8 text-xs font-bold"
-                            >
-                                {displayUser.is_banned ? 'Разблокировать' : 'Заблокировать'}
-                            </Button>
+                        {canModerate && (
+                            <>
+                                <Button
+                                    onClick={handleBanUser}
+                                    size="sm"
+                                    variant={displayUser.is_banned ? 'outline' : 'destructive'}
+                                    className="rounded-xl h-8 text-xs font-bold"
+                                >
+                                    {displayUser.is_banned ? 'Разблокировать' : 'Заблокировать'}
+                                </Button>
+                                <Button
+                                    onClick={handleShadowBanUser}
+                                    size="sm"
+                                    variant={displayUser.is_shadow_banned ? 'outline' : 'secondary'}
+                                    className="rounded-xl h-8 text-xs font-bold gap-1.5"
+                                >
+                                    <EyeOff className="w-3.5 h-3.5" />
+                                    {displayUser.is_shadow_banned ? 'Снять теневой бан' : 'Теневой бан'}
+                                </Button>
+                            </>
                         )}
                     </div>
                 )}
@@ -323,20 +383,109 @@ export default function Profile() {
                 </div>
             ) : (
                 <div className="px-4 pt-3">
-                    <Tabs defaultValue="posts">
+                    <Tabs value={activeTab} onValueChange={(tab) => setSearchParams(tab === 'posts' ? {} : { tab })}>
                         <TabsList className="bg-muted/50 rounded-xl p-1 mb-3 w-full">
                             <TabsTrigger value="posts" className="rounded-lg text-xs gap-1.5 flex-1">
                                 <FileText className="w-3.5 h-3.5" />Посты ({posts.length})
                             </TabsTrigger>
                             {isOwn && (
-                                <TabsTrigger value="saved" className="rounded-lg text-xs gap-1.5 flex-1">
-                                    <Bookmark className="w-3.5 h-3.5" />Сохранённые
-                                </TabsTrigger>
+                                <>
+                                    <TabsTrigger value="drafts" className="rounded-lg text-xs gap-1.5 flex-1">
+                                        <FileText className="w-3.5 h-3.5" />Черновики ({drafts.length})
+                                    </TabsTrigger>
+                                    <TabsTrigger value="scheduled" className="rounded-lg text-xs gap-1.5 flex-1">
+                                        <Clock className="w-3.5 h-3.5" />Отложенные ({scheduled.length})
+                                    </TabsTrigger>
+                                    <TabsTrigger value="saved" className="rounded-lg text-xs gap-1.5 flex-1">
+                                        <Bookmark className="w-3.5 h-3.5" />Сохранённые
+                                    </TabsTrigger>
+                                </>
                             )}
                             <TabsTrigger value="achievements" className="rounded-lg text-xs gap-1.5 flex-1">
                                 <Trophy className="w-3.5 h-3.5" />Достижения
                             </TabsTrigger>
                         </TabsList>
+
+                        {isOwn && (
+                            <TabsContent value="drafts">
+                                {drafts.length === 0 ? (
+                                    <EmptyState icon={FileText} title="Черновиков нет" description="Сохраните пост как черновик при создании" />
+                                ) : (
+                                    <div className="nexus-feed-shell">
+                                        {drafts.map((post) => (
+                                            <div key={post.id} className="nexus-card p-4 mb-3">
+                                                <p className="text-sm font-bold mb-1">{post.title}</p>
+                                                <p className="text-xs text-muted-foreground line-clamp-2 mb-3">{post.content}</p>
+                                                <div className="flex gap-2">
+                                                    <Link to={`/create?draft=${post.id}`}>
+                                                        <Button size="sm" variant="outline" className="rounded-xl h-8 text-xs">Редактировать</Button>
+                                                    </Link>
+                                                    <Button
+                                                        size="sm"
+                                                        className="rounded-xl h-8 text-xs nexus-gradient border-0 text-white"
+                                                        onClick={async () => {
+                                                            await nexusApi.entities.Post.update(post.id, { status: 'published' });
+                                                            toast({ title: 'Опубликовано' });
+                                                            loadProfile();
+                                                        }}
+                                                    >
+                                                        Опубликовать
+                                                    </Button>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="destructive"
+                                                        className="rounded-xl h-8 text-xs"
+                                                        onClick={async () => {
+                                                            await nexusApi.entities.Post.delete(post.id);
+                                                            toast({ title: 'Черновик удалён' });
+                                                            loadProfile();
+                                                        }}
+                                                    >
+                                                        Удалить
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </TabsContent>
+                        )}
+
+                        {isOwn && (
+                            <TabsContent value="scheduled">
+                                {scheduled.length === 0 ? (
+                                    <EmptyState icon={Clock} title="Нет отложенных публикаций" description="Задайте дату публикации при создании поста" />
+                                ) : (
+                                    <div className="nexus-feed-shell">
+                                        {scheduled.map((post) => (
+                                            <div key={post.id} className="nexus-card p-4 mb-3">
+                                                <p className="text-sm font-bold mb-1">{post.title}</p>
+                                                <p className="text-xs text-muted-foreground mb-2">
+                                                    Публикация: {post.publish_at ? new Date(post.publish_at).toLocaleString() : '—'}
+                                                </p>
+                                                <div className="flex gap-2">
+                                                    <Link to={`/create?draft=${post.id}`}>
+                                                        <Button size="sm" variant="outline" className="rounded-xl h-8 text-xs">Изменить</Button>
+                                                    </Link>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="destructive"
+                                                        className="rounded-xl h-8 text-xs"
+                                                        onClick={async () => {
+                                                            await nexusApi.entities.Post.delete(post.id);
+                                                            toast({ title: 'Отложенная публикация отменена' });
+                                                            loadProfile();
+                                                        }}
+                                                    >
+                                                        Отменить
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </TabsContent>
+                        )}
 
                         <TabsContent value="posts">
                             {posts.length === 0 ? (

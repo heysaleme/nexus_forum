@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { profilePath } from '@/lib/profileLink';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { nexusApi } from '@/api/nexusApi';
 import { useAuth } from '@/lib/AuthContext';
@@ -208,11 +209,11 @@ export default function CommunityPage() {
                             <TabsContent value="members">
                                 <div className="bg-card border border-border/40 overflow-hidden divide-y divide-border/30">
                                     {members.map(m => (
-                                        <Link key={m.id} to={`/user/${m.user_id}`}>
+                                        <Link key={m.id} to={profilePath(m.user_id, user?.id)}>
                                             <div className="p-3 flex items-center gap-3 hover:bg-muted/30 transition-colors">
-                                                <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${m.user_id}`} className="w-9 h-9 rounded-full" alt="" />
+                                                <img src={m.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${m.username || m.user_id}`} className="w-9 h-9 rounded-full object-cover" alt="" />
                                                 <div className="flex-1">
-                                                    <p className="text-sm font-semibold">{m.user_id}</p>
+                                                    <p className="text-sm font-semibold">{m.username || `user_${m.user_id}`}</p>
                                                     <p className="text-xs text-muted-foreground capitalize">{m.role}</p>
                                                 </div>
                                                 {(m.role === 'moderator' || m.role === 'owner') && (

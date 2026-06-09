@@ -28,7 +28,9 @@ export default function CreatePost() {
     const { toast } = useToast();
     const [searchParams] = useSearchParams();
     const communityIdParam = searchParams.get('community');
+    const draftIdParam = searchParams.get('draft');
 
+    const [draftId, setDraftId] = useState(draftIdParam || null);
     const [type, setType] = useState('text');
     const [title, setTitle] = useState('');
     const [content, setContent] = useState('');
@@ -44,6 +46,7 @@ export default function CreatePost() {
     const [submitting, setSubmitting] = useState(false);
     const [isNsfw, setIsNsfw] = useState(false);
     const [isSpoiler, setIsSpoiler] = useState(false);
+    const [publishAt, setPublishAt] = useState('');
 
     useEffect(() => {
         if (!user) {
@@ -53,6 +56,33 @@ export default function CreatePost() {
         }
         loadCommunities();
     }, [user]);
+
+    useEffect(() => {
+        if (!user || !draftIdParam) return;
+        (async () => {
+            try {
+                const rows = await nexusApi.entities.Post.filter({ id: draftIdParam });
+                const draft = rows[0];
+                if (!draft || draft.author_id !== user.id) return;
+                setDraftId(String(draft.id));
+                setTitle(draft.title || '');
+                setContent(draft.content || '');
+                setType(draft.type || 'text');
+                setSelectedCommunity(String(draft.community_id || ''));
+                setTags(Array.isArray(draft.tags) ? draft.tags : []);
+                setMediaUrls(Array.isArray(draft.media_urls) ? draft.media_urls : []);
+                setLinkUrl(draft.link_url || '');
+                setIsNsfw(!!draft.is_nsfw);
+                setIsSpoiler(!!draft.is_spoiler);
+                if (draft.publish_at) {
+                    const d = new Date(draft.publish_at);
+                    setPublishAt(d.toISOString().slice(0, 16));
+                }
+            } catch {
+                toast({ title: 'Не удалось загрузить черновик', variant: 'destructive' });
+            }
+        })();
+    }, [user, draftIdParam]);
 
     const loadCommunities = async () => {
         const memberships = await nexusApi.entities.CommunityMember.filter({ user_id: user.id });
@@ -122,35 +152,49 @@ export default function CreatePost() {
         }
 
         setSubmitting(true);
-        const community = communities.find(c => c.id === selectedCommunity);
-        const postData = {
-            title: title.trim(),
-            content: content.trim(),
-            type,
-            author_id: user.id,
-            author_username: user.full_name || user.email,
-            author_avatar: user.avatar_url,
-            community_id: selectedCommunity,
-            community_name: community?.name || '',
-            community_avatar: community?.avatar_url,
-            media_urls: mediaUrls,
-            link_url: type === 'link' ? linkUrl : undefined,
-            tags,
-            status: statusOverride || status,
-            poll_options: type === 'poll' ? pollOptions.filter(o => o.trim()).map(o => ({ text: o, votes: 0 })) : undefined,
-            score: 0,
-            upvotes: 0,
-            downvotes: 0,
-            views: 0,
-            comment_count: 0,
-            is_nsfw: isNsfw,
-            is_spoiler: isSpoiler,
-        };
+        try {
+            const community = communities.find(c => String(c.id) === String(selectedCommunity));
+            const finalStatus = statusOverride || status;
+            const postData = {
+                title: title.trim(),
+                content: content.trim(),
+                type,
+                community_id: Number(selectedCommunity),
+                media_urls: mediaUrls,
+                link_url: type === 'link' ? linkUrl : undefined,
+                tags,
+                status: finalStatus,
+                poll_options: type === 'poll' ? pollOptions.filter(o => o.trim()).map(o => ({ text: o, votes: 0 })) : undefined,
+                is_nsfw: isNsfw,
+                is_spoiler: isSpoiler,
+            };
+            if (publishAt && finalStatus !== 'draft') {
+                postData.publish_at = new Date(publishAt).toISOString();
+                postData.status = 'scheduled';
+            }
 
-        const post = await nexusApi.entities.Post.create(postData);
-        toast({ title: statusOverride === 'draft' ? '📝 Черновик сохранён' : '✅ Опубликовано!' });
-        navigate(statusOverride === 'draft' ? '/profile' : `/post/${post.id}`);
-        setSubmitting(false);
+            let post;
+            if (draftId) {
+                post = await nexusApi.entities.Post.update(draftId, postData);
+            } else {
+                post = await nexusApi.entities.Post.create(postData);
+            }
+
+            if (finalStatus === 'draft') {
+                toast({ title: '📝 Черновик сохранён' });
+                navigate('/profile?tab=drafts');
+            } else if (postData.status === 'scheduled') {
+                toast({ title: '⏰ Публикация запланирована' });
+                navigate('/profile?tab=scheduled');
+            } else {
+                toast({ title: '✅ Опубликовано!' });
+                navigate(`/post/${post.id}`);
+            }
+        } catch (err) {
+            toast({ title: err.message || 'Не удалось сохранить', variant: 'destructive' });
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     return (
@@ -160,7 +204,7 @@ export default function CreatePost() {
                 <Button variant="ghost" size="icon" className="rounded-xl" onClick={() => navigate(-1)}>
                     <ArrowLeft className="w-5 h-5" />
                 </Button>
-                <h1 className="text-xl font-display font-black">Создать публикацию</h1>
+                <h1 className="text-xl font-display font-black">{draftId ? 'Редактировать черновик' : 'Создать публикацию'}</h1>
             </div>
 
             {/* Type selector */}
@@ -405,6 +449,16 @@ export default function CreatePost() {
                         />
                         <span className="text-sm font-semibold text-muted-foreground">Спойлер</span>
                     </label>
+                </div>
+
+                <div className="space-y-2">
+                    <Label className="text-sm font-semibold">Запланировать публикацию (необязательно)</Label>
+                    <Input
+                        type="datetime-local"
+                        value={publishAt}
+                        onChange={(e) => setPublishAt(e.target.value)}
+                        className="rounded-xl"
+                    />
                 </div>
 
                 {/* Actions */}

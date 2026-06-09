@@ -12,6 +12,7 @@ import { ArrowUp, ArrowDown, MessageCircle, Share2, ArrowLeft, Send, Pin, Trash2
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/components/ui/use-toast';
 import { validateFileSize, UPLOAD_LIMITS_MB, limitLabelForCategory } from '@/lib/validateFileSize';
+import { profilePath, sameUserId } from '@/lib/profileLink';
 
 function timeAgoShort(date) {
     if (!date) return '';
@@ -189,7 +190,7 @@ function CommentItem({ comment, depth = 0, currentUser, postId, onCommentAdded, 
             <div className="py-2.5">
                 <div className="flex items-center gap-2 mb-1">
                     <img src={comment.author_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${comment.author_username}`} className="w-6 h-6 rounded-full object-cover" alt="" />
-                    <Link to={`/user/${comment.author_id}`} className="text-xs font-bold hover:text-primary">{comment.author_username}</Link>
+                    <Link to={profilePath(comment.author_id, currentUser?.id)} className="text-xs font-bold hover:text-primary">{comment.author_username}</Link>
                     {comment.author_level && <Badge className="text-[9px] h-4 px-1.5 bg-primary/10 text-primary border-0">Ур. {comment.author_level}</Badge>}
                     <span className="text-[10px] text-muted-foreground ml-auto">{timeAgoShort(comment.created_date)}</span>
                 </div>
@@ -378,7 +379,7 @@ export default function PostPage() {
         }
     };
 
-    const isAuthor = user && post && user.id === post.author_id;
+    const isAuthor = user && post && sameUserId(user.id, post.author_id);
     const isGlobalAdminOrMod = user && (user.role === 'admin' || user.role === 'moderator');
     const isCommOwnerOrMod = memberRole === 'owner' || memberRole === 'moderator';
     const canDelete = isAuthor || isGlobalAdminOrMod || isCommOwnerOrMod;
@@ -556,7 +557,7 @@ export default function PostPage() {
                         <span className="text-xs font-bold text-primary group-hover:underline">{post.community_name}</span>
                     </Link>
                     <span className="text-muted-foreground text-xs">·</span>
-                    <Link to={`/user/${post.author_id}`} className="flex items-center gap-1.5 group">
+                    <Link to={profilePath(post.author_id, currentUser?.id)} className="flex items-center gap-1.5 group">
                         <img src={post.author_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.author_username}`} className="w-4 h-4 rounded-full" alt="" />
                         <span className="text-xs text-muted-foreground group-hover:text-foreground">{post.author_username}</span>
                     </Link>

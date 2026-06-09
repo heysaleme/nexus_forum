@@ -5,13 +5,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Link } from 'react-router-dom';
 import { Search, Users, UserCheck } from 'lucide-react';
 import { nexusApi } from '@/api/nexusApi';
+import { useAuth } from '@/lib/AuthContext';
+import { profilePath } from '@/lib/profileLink';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import EmptyState from '@/components/ui/EmptyState';
 
-function UserRow({ u, onClick }) {
+function UserRow({ u, onClick, currentUserId }) {
     return (
         <Link
-            to={`/user/${u.id}`}
+            to={profilePath(u.id, currentUserId)}
             onClick={onClick}
             className="flex items-center gap-3 p-3 hover:bg-muted/40 rounded-xl transition-colors"
         >
@@ -29,6 +31,7 @@ function UserRow({ u, onClick }) {
 }
 
 export default function FollowersModal({ open, onClose, userId, defaultTab = 'followers' }) {
+    const { user } = useAuth();
     const [followers, setFollowers] = useState([]);
     const [following, setFollowing] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -123,7 +126,7 @@ export default function FollowersModal({ open, onClose, userId, defaultTab = 'fo
                                     <EmptyState icon={Users} title="Нет подписчиков" className="py-6" />
                                 ) : (
                                     filterUsers(followers).map(u => (
-                                        <UserRow key={u.id} u={u} onClick={onClose} />
+                                        <UserRow key={u.id} u={u} onClick={onClose} currentUserId={user?.id} />
                                     ))
                                 )}
                             </div>
@@ -135,7 +138,7 @@ export default function FollowersModal({ open, onClose, userId, defaultTab = 'fo
                                     <EmptyState icon={UserCheck} title="Нет подписок" className="py-6" />
                                 ) : (
                                     filterUsers(following).map(u => (
-                                        <UserRow key={u.id} u={u} onClick={onClose} />
+                                        <UserRow key={u.id} u={u} onClick={onClose} currentUserId={user?.id} />
                                     ))
                                 )}
                             </div>

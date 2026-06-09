@@ -28,6 +28,12 @@ type User struct {
 	OAuthSubject   string    `gorm:"default:''" json:"-"`             // provider-issued user ID
 	LastSeenAt     time.Time `json:"last_seen_at"`
 	IsOnline       bool      `gorm:"-" json:"is_online"`
+	EmailVerified  bool      `gorm:"default:false" json:"email_verified"`
+	EmailNotifyReply      bool `gorm:"default:true" json:"email_notify_reply"`
+	EmailNotifyMention    bool `gorm:"default:true" json:"email_notify_mention"`
+	EmailNotifyFollow     bool `gorm:"default:true" json:"email_notify_follow"`
+	EmailNotifyModeration bool `gorm:"default:true" json:"email_notify_moderation"`
+	EmailNotifyReport     bool `gorm:"default:true" json:"email_notify_report"`
 	CreatedAt      time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"created_date"`
 }
 

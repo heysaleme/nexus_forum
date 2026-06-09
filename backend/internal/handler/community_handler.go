@@ -132,7 +132,33 @@ func (h *Handlers) GetCommunityMembers(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, members)
+	type memberView struct {
+		ID          uint   `json:"id"`
+		UserID      uint   `json:"user_id"`
+		CommunityID uint   `json:"community_id"`
+		Role        string `json:"role"`
+		Username    string `json:"username"`
+		AvatarURL   string `json:"avatar_url"`
+		Title       string `json:"title"`
+	}
+
+	views := make([]memberView, 0, len(members))
+	for _, m := range members {
+		view := memberView{
+			ID:          m.ID,
+			UserID:      m.UserID,
+			CommunityID: m.CommunityID,
+			Role:        m.Role,
+		}
+		if u, err := h.UserService.GetByID(m.UserID); err == nil {
+			view.Username = u.Username
+			view.AvatarURL = u.AvatarURL
+			view.Title = u.Title
+		}
+		views = append(views, view)
+	}
+
+	c.JSON(http.StatusOK, views)
 }
 
 func (h *Handlers) GetCommunityMemberships(c *gin.Context) {

@@ -41,6 +41,12 @@ type Config struct {
 	// OpenTelemetry OTLP endpoint host:port (e.g. tempo:4318)
 	OTELEndpoint string
 	OTELService  string
+
+	SMTPHost     string
+	SMTPPort     string
+	SMTPUsername string
+	SMTPPassword string
+	SMTPFrom     string
 }
 
 func LoadConfig() (*Config, error) {
@@ -100,6 +106,11 @@ func LoadConfig() (*Config, error) {
 		LocalUploadDir:     envOr("LOCAL_UPLOAD_DIR", "./uploads"),
 		OTELEndpoint:       os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 		OTELService:        envOr("OTEL_SERVICE_NAME", "nexus-forum-backend"),
+		SMTPHost:           os.Getenv("SMTP_HOST"),
+		SMTPPort:           envOr("SMTP_PORT", "587"),
+		SMTPUsername:       os.Getenv("SMTP_USERNAME"),
+		SMTPPassword:       os.Getenv("SMTP_PASSWORD"),
+		SMTPFrom:           os.Getenv("SMTP_FROM"),
 	}, nil
 }
 

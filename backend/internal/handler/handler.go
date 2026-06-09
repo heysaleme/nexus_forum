@@ -22,6 +22,7 @@ type Handlers struct {
 	UploadService   service.UploadService
 	WSHub           *WSHub
 	TurnstileSecret string // empty = Turnstile disabled
+	SMTPConfigured  bool
 }
 
 func NewHandlers(
@@ -37,6 +38,7 @@ func NewHandlers(
 	upload service.UploadService,
 	wsHub *WSHub,
 	turnstileSecret string,
+	smtpConfigured bool,
 ) *Handlers {
 	return &Handlers{
 		AuthService:     auth,
@@ -51,6 +53,7 @@ func NewHandlers(
 		UploadService:   upload,
 		WSHub:           wsHub,
 		TurnstileSecret: turnstileSecret,
+		SMTPConfigured:  smtpConfigured,
 	}
 }
 

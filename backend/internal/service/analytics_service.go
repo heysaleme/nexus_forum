@@ -12,6 +12,10 @@ type AnalyticsService interface {
 	Track(userID *uint, eventType, entityType string, entityID *uint, meta string) error
 	// GetDashboard returns aggregated stats for the admin panel.
 	GetDashboard() (map[string]interface{}, error)
+	GetActivity(days int) ([]map[string]interface{}, error)
+	GetReportReasons() ([]map[string]interface{}, error)
+	GetRetention() (map[string]float64, error)
+	GetEngagement() (map[string]interface{}, error)
 }
 
 type analyticsService struct {
@@ -75,4 +79,23 @@ func (s *analyticsService) GetDashboard() (map[string]interface{}, error) {
 		"activity_7d":                 activity7d,
 		"report_reasons":            reportReasons,
 	}, nil
+}
+
+func (s *analyticsService) GetActivity(days int) ([]map[string]interface{}, error) {
+	if days <= 0 {
+		days = 7
+	}
+	return s.repo.GetActivitySeries(days)
+}
+
+func (s *analyticsService) GetReportReasons() ([]map[string]interface{}, error) {
+	return s.repo.GetReportReasonBreakdown()
+}
+
+func (s *analyticsService) GetRetention() (map[string]float64, error) {
+	return s.repo.GetRetentionRates()
+}
+
+func (s *analyticsService) GetEngagement() (map[string]interface{}, error) {
+	return s.repo.GetEngagementStats()
 }

@@ -78,9 +78,13 @@ func (s *chatService) GetMessages(roomID uint, userID uint, limit int) ([]*model
 				break
 			}
 		}
-		if !isDeletedForMe {
-			filtered = append(filtered, msg)
+		if isDeletedForMe {
+			continue
 		}
+		if sender, err := s.userRepo.GetByID(msg.SenderID); err == nil && sender.IsShadowBanned && msg.SenderID != userID {
+			continue
+		}
+		filtered = append(filtered, msg)
 	}
 	return filtered, nil
 }

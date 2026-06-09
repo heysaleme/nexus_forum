@@ -5,6 +5,7 @@ import { nexusApi } from '@/api/nexusApi';
 import { useState } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/lib/AuthContext';
+import { profilePath, sameUserId } from '@/lib/profileLink';
 import ReportModal from '@/components/ui/ReportModal';
 
 function asArray(value) {
@@ -137,7 +138,7 @@ export default function PostCard({ post, currentUser: propUser, onVote, onDelete
                     <span className="text-xs font-bold text-primary group-hover:underline">{post.community_name}</span>
                 </Link>
                 <span className="hidden sm:block text-muted-foreground text-xs">·</span>
-                <Link to={`/user/${post.author_id}`} onClick={e => e.stopPropagation()} className="hidden sm:flex items-center gap-1 group">
+                <Link to={profilePath(post.author_id, currentUser?.id)} onClick={e => e.stopPropagation()} className="hidden sm:flex items-center gap-1 group">
                     <img src={post.author_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.author_username}`} className="w-4 h-4 rounded-full object-cover" alt="" />
                     <span className="text-xs text-muted-foreground group-hover:text-foreground">{post.author_username}</span>
                 </Link>
@@ -148,7 +149,9 @@ export default function PostCard({ post, currentUser: propUser, onVote, onDelete
                     <span className="text-xs font-bold text-primary group-hover:underline">{post.community_name}</span>
                 </Link>
                 <span className="sm:hidden text-muted-foreground text-xs">·</span>
-                <span className="sm:hidden text-xs text-muted-foreground">{post.author_username}</span>
+                <Link to={profilePath(post.author_id, currentUser?.id)} onClick={e => e.stopPropagation()} className="sm:hidden text-xs text-muted-foreground hover:text-foreground">
+                    {post.author_username}
+                </Link>
 
                 <span className="text-muted-foreground text-xs ml-auto">{ago} назад</span>
             </div>
@@ -279,7 +282,7 @@ export default function PostCard({ post, currentUser: propUser, onVote, onDelete
                 </div>
 
                 <div className="ml-auto flex items-center gap-0.5">
-                    {currentUser && (currentUser.id === post.author_id || currentUser.role === 'admin' || currentUser.role === 'moderator') && (
+                    {currentUser && (sameUserId(currentUser.id, post.author_id) || currentUser.role === 'admin' || currentUser.role === 'moderator') && (
                         <button
                             onClick={handleDelete}
                             className="h-7 w-7 flex items-center justify-center text-destructive hover:text-destructive/80 transition-colors mr-1"
@@ -288,7 +291,7 @@ export default function PostCard({ post, currentUser: propUser, onVote, onDelete
                             <Trash2 className="w-3.5 h-3.5" />
                         </button>
                     )}
-                    {currentUser && currentUser.id !== post.author_id && (
+                    {currentUser && !sameUserId(currentUser.id, post.author_id) && (
                         <button
                             onClick={(e) => { e.stopPropagation(); setReportOpen(true); }}
                             className="h-7 w-7 flex items-center justify-center text-muted-foreground hover:text-orange-500 transition-colors mr-1"

@@ -19,7 +19,9 @@ import (
 
 	"nexus-forum-backend/internal/config"
 	"nexus-forum-backend/internal/database"
+	"nexus-forum-backend/internal/email"
 	"nexus-forum-backend/internal/handler"
+	"nexus-forum-backend/internal/search"
 	"nexus-forum-backend/internal/middleware"
 	"nexus-forum-backend/internal/model"
 	"nexus-forum-backend/internal/repository"
@@ -95,6 +97,7 @@ func main() {
 		&model.KeywordFilter{},
 		&model.PasswordResetToken{},
 		&model.RefreshToken{},
+		&model.EmailVerification{},
 	)
 	if err != nil {
 		log.Fatalf("failed to auto migrate tables: %v", err)
@@ -102,6 +105,18 @@ func main() {
 
 	// Data fix for existing follows
 	db.Exec("UPDATE user_follows SET status = 'accepted' WHERE status = '' OR status IS NULL")
+
+	if err := search.Init(db); err != nil {
+		logger.Warn("search index unavailable; falling back to LIKE search", "error", err)
+	} else {
+		if search.FTSEnabled() {
+			if err := search.ReindexAll(db); err != nil {
+				logger.Warn("search reindex failed", "error", err)
+			}
+		} else {
+			logger.Warn("FTS5 module unavailable in SQLite build; using LIKE fallback for search")
+		}
+	}
 
 	logger.Info("database auto-migrations complete")
 	database.PurgeLegacyBase64Media(db)
@@ -124,8 +139,16 @@ func main() {
 	keywordFilterRepo := repository.NewKeywordFilterRepository(db)
 	resetRepo := repository.NewPasswordResetRepository(db)
 	refreshRepo := repository.NewRefreshTokenRepository(db)
+	verifyRepo := repository.NewEmailVerificationRepository(db)
+	mailer := email.NewMailer(email.Config{
+		Host:     cfg.SMTPHost,
+		Port:     cfg.SMTPPort,
+		Username: cfg.SMTPUsername,
+		Password: cfg.SMTPPassword,
+		From:     cfg.SMTPFrom,
+	})
 
-	authService := service.NewAuthService(userRepo, modRepo, resetRepo, refreshRepo, cfg.JWTSecret)
+	authService := service.NewAuthService(userRepo, modRepo, resetRepo, refreshRepo, verifyRepo, mailer, cfg.JWTSecret)
 	userService := service.NewUserService(userRepo, followRepo, notifRepo, modRepo)
 	commService := service.NewCommunityService(commRepo, userRepo)
 	postService := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, savedRepo, notifRepo)
@@ -148,7 +171,7 @@ func main() {
 	// Register global NotificationDispatcher to trigger real-time WS notifications
 	repository.NotificationDispatcher = func(userID uint, notif *model.Notification) {
 		payload, err := json.Marshal(struct {
-			Type string             `json:"type"`
+			Type string              `json:"type"`
 			Data *model.Notification `json:"data"`
 		}{
 			Type: "notification",
@@ -158,7 +181,10 @@ func main() {
 			wsHub.SendToUser(userID, payload)
 		}
 
-		// Push updated count as well
+		if recipient, err := userRepo.GetByID(userID); err == nil {
+			email.MaybeNotifyForNotification(mailer, recipient, notif)
+		}
+
 		var count int64
 		if db != nil {
 			db.Model(&model.Notification{}).Where("user_id = ? AND is_read = ?", userID, false).Count(&count)
@@ -175,7 +201,7 @@ func main() {
 		}
 	}
 
-	handlers := handler.NewHandlers(authService, userService, commService, postService, commentService, chatService, notifService, modService, analyticsService, uploadService, wsHub, cfg.TurnstileSecret)
+	handlers := handler.NewHandlers(authService, userService, commService, postService, commentService, chatService, notifService, modService, analyticsService, uploadService, wsHub, cfg.TurnstileSecret, mailer.Enabled())
 
 	// OAuth handler config
 	oauthCfg := handler.OAuthConfig{
@@ -213,6 +239,7 @@ func main() {
 		// Auth endpoints
 		api.POST("/auth/register", authRateLimit, handlers.Register)
 		api.POST("/auth/verify-otp", authRateLimit, handlers.VerifyOTP)
+		api.POST("/auth/resend-otp", authRateLimit, handlers.ResendOTP)
 		api.POST("/auth/login", authRateLimit, handlers.Login)
 		api.POST("/auth/forgot-password", authRateLimit, handlers.ForgotPassword)
 		api.POST("/auth/reset-password", authRateLimit, handlers.ResetPassword)
@@ -226,11 +253,13 @@ func main() {
 		api.GET("/auth/oauth/github", handler.GitHubOAuthInitiate(oauthCfg))
 		api.POST("/auth/oauth/github/callback", handler.GitHubOAuthCallback(oauthCfg, authService))
 
-		// Public User details
-		api.GET("/users", handlers.ListUsers)
-		api.GET("/users/:id", handlers.GetUserByID)
-		api.GET("/users/:id/followers", handlers.GetFollowers)
-		api.GET("/users/:id/following", handlers.GetFollowing)
+		// User details (optional JWT for moderator/admin moderation fields)
+		usersPublic := api.Group("")
+		usersPublic.Use(middleware.OptionalAuthMiddleware(authService))
+		usersPublic.GET("/users", handlers.ListUsers)
+		usersPublic.GET("/users/:id", handlers.GetUserByID)
+		usersPublic.GET("/users/:id/followers", handlers.GetFollowers)
+		usersPublic.GET("/users/:id/following", handlers.GetFollowing)
 
 		// Public Community endpoints
 		api.GET("/communities", handlers.ListCommunities)
@@ -238,15 +267,15 @@ func main() {
 		api.GET("/communities/:id", handlers.GetCommunityByID)
 		api.GET("/communities/:id/members", handlers.GetCommunityMembers)
 
-		// Public Post endpoints
-		api.GET("/posts", handlers.ListPosts)
-		api.GET("/posts/:id", handlers.GetPostByID)
+		// Posts, search (optional JWT for privacy/shadow/draft visibility)
+		publicRead := api.Group("")
+		publicRead.Use(middleware.OptionalAuthMiddleware(authService))
+		publicRead.GET("/posts", handlers.ListPosts)
+		publicRead.GET("/posts/:id", handlers.GetPostByID)
+		publicRead.GET("/search", handlers.Search)
 
 		// Public Comment list
 		api.GET("/comments", handlers.ListComments)
-
-		// Search endpoint
-		api.GET("/search", handlers.Search)
 
 		// SECURE ROUTE GROUP
 		secured := api.Group("")
@@ -255,6 +284,9 @@ func main() {
 			// User/Auth actions
 			secured.GET("/auth/me", handlers.GetMe)
 			secured.PUT("/auth/me", handlers.UpdateMe)
+			secured.GET("/auth/sessions", handlers.ListSessions)
+			secured.DELETE("/auth/sessions/:id", handlers.RevokeSession)
+			secured.POST("/auth/sessions/revoke-others", handlers.RevokeOtherSessions)
 			secured.POST("/auth/change-password", handlers.ChangePassword)
 			secured.PUT("/users/:id", handlers.UpdateUser)
 
@@ -274,6 +306,7 @@ func main() {
 
 			// Post actions
 			secured.GET("/posts/following", handlers.ListFollowingPosts)
+			secured.GET("/posts/following-communities", handlers.ListFollowingCommunityPosts)
 			secured.POST("/posts", postRateLimit, handlers.CreatePost)
 			secured.PUT("/posts/:id", handlers.UpdatePost)
 			secured.DELETE("/posts/:id", handlers.DeletePost)
@@ -331,6 +364,10 @@ func main() {
 
 			// Admin-only routes
 			secured.GET("/analytics/dashboard", middleware.RequireAdmin(), handlers.GetAnalyticsDashboard)
+			secured.GET("/analytics/activity", middleware.RequireAdmin(), handlers.GetAnalyticsActivity)
+			secured.GET("/analytics/reports", middleware.RequireAdmin(), handlers.GetAnalyticsReports)
+			secured.GET("/analytics/retention", middleware.RequireAdmin(), handlers.GetAnalyticsRetention)
+			secured.GET("/analytics/engagement", middleware.RequireAdmin(), handlers.GetAnalyticsEngagement)
 			if os.Getenv("ENABLE_BREAKER_DEBUG") == "true" {
 				secured.POST("/admin/circuit-breaker/:name/probe", middleware.RequireAdmin(), handlers.ProbeCircuitBreaker)
 			}
@@ -343,6 +380,19 @@ func main() {
 
 	// Public analytics event tracking (can also be called by anonymous users)
 	r.POST("/api/analytics/track", handlers.TrackEvent)
+
+	// Background scheduler for due scheduled posts
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if n, err := postService.PublishDueScheduled(); err != nil {
+				logger.Warn("scheduled publish failed", "error", err)
+			} else if n > 0 {
+				logger.Info("published scheduled posts", "count", n)
+			}
+		}
+	}()
 
 	// 8. Start HTTP Server
 	addr := fmt.Sprintf(":%s", cfg.Port)

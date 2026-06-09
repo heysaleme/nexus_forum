@@ -8,6 +8,7 @@ import { Search as SearchIcon, User, Users, FileText } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/lib/AuthContext';
+import { profilePath } from '@/lib/profileLink';
 import { motion } from 'framer-motion';
 
 const TABS = [
@@ -153,7 +154,7 @@ export default function Search() {
                             )}
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                                 {results.users.slice(0, activeTab === 'all' ? 6 : 30).map(u => (
-                                    <Link key={u.id} to={`/user/${u.id}`}>
+                                    <Link key={u.id} to={profilePath(u.id, user?.id)}>
                                         <motion.div whileHover={{ y: -2 }} className="nexus-card nexus-card-hover p-3 flex flex-col items-center gap-2 text-center cursor-pointer">
                                             <img
                                                 src={u.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.username}`}

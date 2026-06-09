@@ -2,7 +2,9 @@ package repository
 
 import (
 	"strings"
+
 	"nexus-forum-backend/internal/model"
+	"nexus-forum-backend/internal/search"
 
 	"gorm.io/gorm"
 )
@@ -87,12 +89,26 @@ func (r *userRepository) List(sortSpec string, limit int) ([]*model.User, error)
 func (r *userRepository) Search(query string, limit int) ([]*model.User, error) {
 	var users []*model.User
 	dialect := r.db.Dialector.Name()
+	query = strings.TrimSpace(query)
 	var q *gorm.DB
 	if dialect == "postgres" {
-		q = r.db.Where("to_tsvector('simple', username || ' ' || bio) @@ plainto_tsquery('simple', ?)", query)
+		q = r.db.Where("to_tsvector('simple', coalesce(username,'') || ' ' || coalesce(bio,'') || ' ' || coalesce(email,'')) @@ plainto_tsquery('simple', ?)", query)
+	} else if search.FTSEnabled() {
+		ftsQuery := search.BuildFTSQuery(query)
+		if ftsQuery != "" {
+			sub := r.db.Table("users_fts").Select("rowid").Where("users_fts MATCH ?", ftsQuery)
+			q = r.db.Where("id IN (?)", sub)
+		} else {
+			likePattern := "%" + strings.ToLower(query) + "%"
+			q = r.db.Where("LOWER(username) LIKE ? OR LOWER(bio) LIKE ? OR LOWER(email) LIKE ?", likePattern, likePattern, likePattern)
+		}
 	} else {
-		likePattern := "%" + strings.ToLower(query) + "%"
-		q = r.db.Where("LOWER(username) LIKE ? OR LOWER(bio) LIKE ?", likePattern, likePattern)
+		likePattern := "%" + query + "%"
+		likeLower := "%" + strings.ToLower(query) + "%"
+		q = r.db.Where(
+			"username LIKE ? OR bio LIKE ? OR email LIKE ? OR LOWER(username) LIKE ? OR LOWER(email) LIKE ?",
+			likePattern, likePattern, likePattern, likeLower, likeLower,
+		)
 	}
 
 	if limit > 0 {

@@ -25,7 +25,7 @@ const CATEGORIES = [
     { id: 'lifestyle', label: 'Лайфстайл' },
 ];
 
-const BACKEND_SORTS = new Set(['hot', 'new', 'top']);
+const BACKEND_SORTS = new Set(['hot', 'new', 'top', 'trending']);
 
 export default function Home() {
     const { user } = useAuth();
@@ -33,7 +33,16 @@ export default function Home() {
 
     const [posts, setPosts] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [sort, setSort] = useState('hot');
+    const [sort, setSort] = useState(() => {
+        const saved = localStorage.getItem('nexus_feed_sort');
+        if (saved === 'following') return 'following-users';
+        return saved || 'hot';
+    });
+
+    const handleSortChange = (next) => {
+        setSort(next);
+        localStorage.setItem('nexus_feed_sort', next);
+    };
     const [communities, setCommunities] = useState([]);
     const [allCommunities, setAllCommunities] = useState([]);
     const [activeCategory, setActiveCategory] = useState('all');
@@ -55,11 +64,17 @@ export default function Home() {
 
             let feedPosts = [];
 
-            if (sort === 'following') {
+            if (sort === 'following-users') {
                 if (!user) {
                     feedPosts = [];
                 } else {
                     feedPosts = await nexusApi.feed.following({ sort: 'new', limit: 50 });
+                }
+            } else if (sort === 'following-communities') {
+                if (!user) {
+                    feedPosts = [];
+                } else {
+                    feedPosts = await nexusApi.feed.followingCommunities({ sort: 'new', limit: 50 });
                 }
             } else {
                 const backendSort = BACKEND_SORTS.has(sort) ? sort : 'hot';
@@ -73,12 +88,6 @@ export default function Home() {
                     const comm = communitiesData.find((c) => c.id === p.community_id);
                     return comm?.category === activeCategory;
                 });
-            }
-
-            if (sort === 'trending') {
-                filtered = [...filtered].sort(
-                    (a, b) => ((b.views || 0) + (b.score || 0) * 2) - ((a.views || 0) + (a.score || 0) * 2),
-                );
             }
 
             setPosts(filtered.slice(0, 20));
@@ -144,7 +153,7 @@ export default function Home() {
                     </div>
 
                     <div className="mb-3">
-                        <SortBar active={sort} onChange={setSort} />
+                        <SortBar active={sort} onChange={handleSortChange} />
                     </div>
 
                     {loading ? (
@@ -152,14 +161,28 @@ export default function Home() {
                     ) : posts.length === 0 ? (
                         <EmptyState
                             icon={FileText}
-                            title={sort === 'following' ? 'Нет постов из подписок' : 'Лента пуста'}
-                            description={sort === 'following' ? 'Подпишись на пользователей, чтобы видеть их публикации' : 'Вступи в сообщества, чтобы видеть публикации'}
+                            title={
+                                sort === 'following-users'
+                                    ? 'Нет постов от подписок'
+                                    : sort === 'following-communities'
+                                        ? 'Нет постов из ваших сообществ'
+                                        : 'Лента пуста'
+                            }
+                            description={
+                                sort === 'following-users'
+                                    ? 'Подпишись на пользователей, чтобы видеть их публикации'
+                                    : sort === 'following-communities'
+                                        ? 'Вступи в сообщества, чтобы видеть их публикации'
+                                        : 'Вступи в сообщества, чтобы видеть публикации'
+                            }
                             action={
-                                <Link to="/communities">
-                                    <Button className="nexus-gradient border-0 text-white rounded-xl shadow-nexus">
-                                        Найти сообщества
-                                    </Button>
-                                </Link>
+                                sort === 'following-users' ? undefined : (
+                                    <Link to="/communities">
+                                        <Button className="nexus-gradient border-0 text-white rounded-xl shadow-nexus">
+                                            Найти сообщества
+                                        </Button>
+                                    </Link>
+                                )
                             }
                         />
                     ) : (

@@ -10,6 +10,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
+	"nexus-forum-backend/internal/email"
 	"nexus-forum-backend/internal/model"
 	"nexus-forum-backend/internal/repository"
 )
@@ -18,36 +19,51 @@ type AuthService interface {
 	Register(email, password string) error
 	VerifyOTP(email, otpCode string) (accessToken, refreshToken string, user *model.User, err error)
 	Login(email, password string) (accessToken, refreshToken string, user *model.User, err error)
+	LoginWithContext(email, password, userAgent, ipAddress string) (accessToken, refreshToken string, user *model.User, err error)
 	RefreshAccessToken(refreshToken string) (accessToken, newRefreshToken string, err error)
+	RefreshAccessTokenWithContext(refreshToken string, userAgent, ipAddress string) (accessToken, newRefreshToken string, err error)
 	Logout(refreshToken string) error
+	ListSessions(userID uint) ([]*model.RefreshToken, error)
+	RevokeSession(userID, sessionID uint) error
+	RevokeOtherSessions(userID, keepSessionID uint) error
 	ValidateToken(tokenStr string) (*Claims, error)
+	ResendVerification(email string) error
 	ChangePassword(userID uint, oldPassword, newPassword string) error
 	RequestPasswordReset(email string) (string, error)
 	ResetPassword(resetToken, newPassword string) error
 	FindOrCreateOAuthUser(provider, sub, email, name, avatarURL string) (*model.User, string, string, error)
 }
 
-// In-memory pending registration store for OTP code verification (simulating Redis/DB)
-var pendingRegistrations = make(map[string]string) // email -> hashed_password
-
 type authService struct {
 	repo       repository.UserRepository
 	modRepo    repository.ModerationRepository
 	resetRepo   repository.PasswordResetRepository
 	refreshRepo repository.RefreshTokenRepository
+	verifyRepo  repository.EmailVerificationRepository
+	mailer      *email.Mailer
 	jwtSecret   string
 }
 
-func NewAuthService(repo repository.UserRepository, modRepo repository.ModerationRepository, resetRepo repository.PasswordResetRepository, refreshRepo repository.RefreshTokenRepository, jwtSecret string) AuthService {
-	return &authService{repo: repo, modRepo: modRepo, resetRepo: resetRepo, refreshRepo: refreshRepo, jwtSecret: jwtSecret}
+func NewAuthService(
+	repo repository.UserRepository,
+	modRepo repository.ModerationRepository,
+	resetRepo repository.PasswordResetRepository,
+	refreshRepo repository.RefreshTokenRepository,
+	verifyRepo repository.EmailVerificationRepository,
+	mailer *email.Mailer,
+	jwtSecret string,
+) AuthService {
+	return &authService{
+		repo: repo, modRepo: modRepo, resetRepo: resetRepo, refreshRepo: refreshRepo,
+		verifyRepo: verifyRepo, mailer: mailer, jwtSecret: jwtSecret,
+	}
 }
 
 func (s *authService) Register(email, password string) error {
-	_, err := s.repo.GetByEmail(email)
-	if err == nil {
+	if _, err := s.repo.GetByEmail(email); err == nil {
 		return errors.New("email already registered")
 	}
-	if _, exists := pendingRegistrations[email]; exists {
+	if pending, err := s.verifyRepo.GetPendingByEmail(email); err == nil && pending != nil {
 		return errors.New("registration already pending for this email")
 	}
 
@@ -56,46 +72,105 @@ func (s *authService) Register(email, password string) error {
 		return err
 	}
 
-	pendingRegistrations[email] = string(hashed)
+	code, err := s.verificationCode()
+	if err != nil {
+		return err
+	}
+
+	row := &model.EmailVerification{
+		Email:        email,
+		Code:         code,
+		PasswordHash: string(hashed),
+		ExpiresAt:    time.Now().Add(15 * time.Minute),
+	}
+	if err := s.verifyRepo.Upsert(row); err != nil {
+		return err
+	}
+
+	if s.mailer != nil && s.mailer.Enabled() {
+		if err := s.mailer.SendVerification(email, code); err != nil {
+			return fmt.Errorf("failed to send verification email: %w", err)
+		}
+	}
 	return nil
 }
 
+func (s *authService) ResendVerification(email string) error {
+	if _, err := s.repo.GetByEmail(email); err == nil {
+		return errors.New("email already registered")
+	}
+
+	pending, err := s.verifyRepo.GetPendingByEmail(email)
+	if err != nil {
+		return errors.New("no pending registration for this email")
+	}
+
+	code, err := s.verificationCode()
+	if err != nil {
+		return err
+	}
+	pending.Code = code
+	pending.ExpiresAt = time.Now().Add(15 * time.Minute)
+	if err := s.verifyRepo.Upsert(pending); err != nil {
+		return err
+	}
+	if s.mailer != nil && s.mailer.Enabled() {
+		return s.mailer.SendVerification(email, code)
+	}
+	return nil
+}
+
+func (s *authService) verificationCode() (string, error) {
+	if s.mailer != nil && s.mailer.Enabled() {
+		return generateOTPCode()
+	}
+	return "123456", nil
+}
+
 func (s *authService) VerifyOTP(email, otpCode string) (string, string, *model.User, error) {
-	if otpCode != "123456" {
-		return "", "", nil, errors.New("invalid OTP code, use demo code 123456")
+	row, err := s.verifyRepo.GetValid(email, otpCode)
+	if err != nil {
+		return "", "", nil, errors.New("invalid or expired verification code")
 	}
 
-	hashedPassword, ok := pendingRegistrations[email]
-	if !ok {
-		return "", "", nil, errors.New("no pending registration for this email")
-	}
-
-	// Create User
 	parts := strings.Split(email, "@")
 	username := parts[0]
 	user := &model.User{
-		Username:     username,
-		Email:        email,
-		PasswordHash: hashedPassword,
-		Role:         "user",
-		ProfileTheme: "default",
-		Level:        1,
-		XP:           0,
-		AllowDMs:     true,
+		Username:      username,
+		Email:         email,
+		PasswordHash:  row.PasswordHash,
+		Role:          "user",
+		ProfileTheme:  "default",
+		Level:         1,
+		XP:            0,
+		AllowDMs:      true,
+		EmailVerified: true,
 	}
 
-	err := s.repo.Create(user)
-	if err != nil {
+	if err := s.repo.Create(user); err != nil {
 		return "", "", nil, err
 	}
 
-	delete(pendingRegistrations, email)
+	_ = s.verifyRepo.DeleteByEmail(email)
 
 	access, refresh, err := s.issueTokenPair(user)
 	return access, refresh, user, err
 }
 
+func generateOTPCode() (string, error) {
+	b := make([]byte, 3)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	n := (int(b[0])<<16 | int(b[1])<<8 | int(b[2])) % 1000000
+	return fmt.Sprintf("%06d", n), nil
+}
+
 func (s *authService) Login(email, password string) (string, string, *model.User, error) {
+	return s.LoginWithContext(email, password, "", "")
+}
+
+func (s *authService) LoginWithContext(email, password, userAgent, ipAddress string) (string, string, *model.User, error) {
 	user, err := s.repo.GetByEmail(email)
 	if err != nil {
 		_ = s.modRepo.CreateLog(&model.ModerationLog{
@@ -131,7 +206,7 @@ func (s *authService) Login(email, password string) (string, string, *model.User
 		return "", "", nil, errors.New("this account is banned")
 	}
 
-	access, refresh, err := s.issueTokenPair(user)
+	access, refresh, err := s.issueTokenPairWithMeta(user, userAgent, ipAddress)
 	if err == nil {
 		_ = s.modRepo.CreateLog(&model.ModerationLog{
 			ActorID:    user.ID,
@@ -152,6 +227,10 @@ func (s *authService) Logout(refreshToken string) error {
 }
 
 func (s *authService) RefreshAccessToken(refreshToken string) (string, string, error) {
+	return s.RefreshAccessTokenWithContext(refreshToken, "", "")
+}
+
+func (s *authService) RefreshAccessTokenWithContext(refreshToken, userAgent, ipAddress string) (string, string, error) {
 	row, err := s.refreshRepo.GetValidToken(refreshToken)
 	if err != nil {
 		return "", "", errors.New("invalid or expired refresh token")
@@ -165,11 +244,25 @@ func (s *authService) RefreshAccessToken(refreshToken string) (string, string, e
 		return "", "", errors.New("this account is banned")
 	}
 
+	_ = s.refreshRepo.TouchLastUsed(row.ID)
+
 	if err := s.refreshRepo.Revoke(row.ID); err != nil {
 		return "", "", err
 	}
 
-	return s.issueTokenPair(user)
+	return s.issueTokenPairWithMeta(user, userAgent, ipAddress)
+}
+
+func (s *authService) ListSessions(userID uint) ([]*model.RefreshToken, error) {
+	return s.refreshRepo.ListActiveByUser(userID)
+}
+
+func (s *authService) RevokeSession(userID, sessionID uint) error {
+	return s.refreshRepo.RevokeByIDForUser(sessionID, userID)
+}
+
+func (s *authService) RevokeOtherSessions(userID, keepSessionID uint) error {
+	return s.refreshRepo.RevokeAllForUserExcept(userID, keepSessionID)
 }
 
 func (s *authService) ValidateToken(tokenStr string) (*Claims, error) {
@@ -184,46 +277,65 @@ func (s *authService) ValidateToken(tokenStr string) (*Claims, error) {
 	}
 
 	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
+		if claims.SessionID == 0 {
+			return nil, errors.New("session expired: please log in again")
+		}
+		active, err := s.refreshRepo.IsSessionActive(claims.SessionID)
+		if err != nil {
+			return nil, errors.New("session validation failed")
+		}
+		if !active {
+			return nil, errors.New("session revoked")
+		}
 		return claims, nil
 	}
 	return nil, errors.New("invalid token claims")
 }
 
 func (s *authService) issueTokenPair(user *model.User) (string, string, error) {
-	access, err := s.generateJWT(user)
+	return s.issueTokenPairWithMeta(user, "", "")
+}
+
+func (s *authService) issueTokenPairWithMeta(user *model.User, userAgent, ipAddress string) (string, string, error) {
+	row, refresh, err := s.createRefreshToken(user.ID, userAgent, ipAddress)
 	if err != nil {
 		return "", "", err
 	}
-	refresh, err := s.createRefreshToken(user.ID)
+	access, err := s.generateJWT(user, row.ID)
 	if err != nil {
 		return "", "", err
 	}
 	return access, refresh, nil
 }
 
-func (s *authService) createRefreshToken(userID uint) (string, error) {
+func (s *authService) createRefreshToken(userID uint, userAgent, ipAddress string) (*model.RefreshToken, string, error) {
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
-		return "", err
+		return nil, "", err
 	}
 	token := hex.EncodeToString(tokenBytes)
+	now := time.Now()
 	row := &model.RefreshToken{
-		UserID:    userID,
-		Token:     token,
-		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
+		UserID:     userID,
+		Token:      token,
+		ExpiresAt:  now.Add(7 * 24 * time.Hour),
+		UserAgent:  userAgent,
+		IPAddress:  ipAddress,
+		LastUsedAt: now,
 	}
 	if err := s.refreshRepo.Create(row); err != nil {
-		return "", err
+		return nil, "", err
 	}
-	return token, nil
+	return row, token, nil
 }
 
-func (s *authService) generateJWT(user *model.User) (string, error) {
+func (s *authService) generateJWT(user *model.User, sessionID uint) (string, error) {
 	claims := Claims{
-		UserID:   user.ID,
-		Email:    user.Email,
-		Username: user.Username,
-		Role:     user.Role,
+		UserID:    user.ID,
+		SessionID: sessionID,
+		Email:     user.Email,
+		Username:  user.Username,
+		Role:      user.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

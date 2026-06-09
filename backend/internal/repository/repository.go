@@ -67,6 +67,11 @@ func parsePostSort(dialect, sortSpec string) string {
 			return "score ASC"
 		}
 		return "score DESC"
+	case "trending":
+		if desc {
+			return "(views + score * 2) ASC"
+		}
+		return "(views + score * 2) DESC"
 	default:
 		return parseSort(sortSpec)
 	}

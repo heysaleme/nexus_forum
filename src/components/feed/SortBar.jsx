@@ -1,11 +1,12 @@
 import { motion } from 'framer-motion';
-import { Flame, Clock, TrendingUp, Users, Zap } from 'lucide-react';
+import { Flame, Clock, TrendingUp, Users, Zap, Building2 } from 'lucide-react';
 
 const sorts = [
     { id: 'hot', label: 'Горячее', icon: Flame },
     { id: 'new', label: 'Новое', icon: Clock },
     { id: 'top', label: 'Лучшее', icon: TrendingUp },
-    { id: 'following', label: 'Подписки', icon: Users },
+    { id: 'following-users', label: 'Подписки', icon: Users },
+    { id: 'following-communities', label: 'Мои сообщества', icon: Building2 },
     { id: 'trending', label: 'Тренды', icon: Zap },
 ];
 

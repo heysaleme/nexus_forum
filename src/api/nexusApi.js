@@ -28,6 +28,18 @@ const clearSession = () => {
     localStorage.removeItem(REFRESH_KEY);
 };
 
+/** Decode JWT payload without verification (client-side session id only). */
+const getSessionIdFromToken = () => {
+    try {
+        const token = getToken();
+        if (!token) return null;
+        const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+        return payload.sid || null;
+    } catch {
+        return null;
+    }
+};
+
 let refreshPromise = null;
 
 const refreshAccessToken = async () => {
@@ -77,6 +89,9 @@ const request = async (path, options = {}, retried = false) => {
             return request(path, options, true);
         } catch {
             clearSession();
+            if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+                window.location.href = '/login?reason=session_expired';
+            }
         }
     }
 
@@ -84,6 +99,12 @@ const request = async (path, options = {}, retried = false) => {
         const errData = await response.json().catch(() => ({}));
         const err = new Error(errData.error || `HTTP error ${response.status}`);
         err.status = response.status;
+        if (response.status === 401 && /session revoked/i.test(errData.error || '')) {
+            clearSession();
+            if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+                window.location.href = '/login?reason=session_revoked';
+            }
+        }
         throw err;
     }
 
@@ -286,8 +307,11 @@ const auth = {
         persistSession(res);
         return res;
     },
-    async resendOtp() {
-        return { success: true };
+    async resendOtp(email) {
+        return request('/auth/resend-otp', {
+            method: 'POST',
+            body: JSON.stringify({ email }),
+        });
     },
     setToken(token) {
         setToken(token);
@@ -339,6 +363,26 @@ const auth = {
             body: JSON.stringify(profile),
         });
     },
+    async listSessions() {
+        return request('/auth/sessions');
+    },
+    async revokeSession(sessionId) {
+        const currentSid = getSessionIdFromToken();
+        const res = await request(`/auth/sessions/${sessionId}`, { method: 'DELETE' });
+        if (currentSid && Number(currentSid) === Number(sessionId)) {
+            clearSession();
+            window.location.href = '/login?reason=session_revoked';
+        }
+        return res;
+    },
+    getSessionIdFromToken,
+    async revokeOtherSessions(keepSessionId) {
+        const sid = keepSessionId || getSessionIdFromToken();
+        return request('/auth/sessions/revoke-others', {
+            method: 'POST',
+            body: JSON.stringify({ keep_session_id: sid ? Number(sid) : 0 }),
+        });
+    },
     async logout(redirectPath) {
         const refresh = getRefreshToken();
         try {
@@ -387,6 +431,21 @@ const nexusApi = {
         async getDashboard() {
             return request('/analytics/dashboard');
         },
+        async getActivity(days = 7) {
+            const res = await request(`/analytics/activity?days=${days}`);
+            return res?.activity || [];
+        },
+        async getReportReasons() {
+            const res = await request('/analytics/reports');
+            return res?.report_reasons || [];
+        },
+        async getRetention() {
+            const res = await request('/analytics/retention');
+            return res?.retention || {};
+        },
+        async getEngagement() {
+            return request('/analytics/engagement');
+        },
     },
     feed: {
         async list({ sort = 'hot', limit = 50 } = {}) {
@@ -397,6 +456,11 @@ const nexusApi = {
         async following({ sort = 'new', limit = 50 } = {}) {
             const params = new URLSearchParams({ sort, limit: String(limit) });
             const res = await request(`/posts/following?${params}`);
+            return Array.isArray(res) ? res.map(parsePost) : [];
+        },
+        async followingCommunities({ sort = 'new', limit = 50 } = {}) {
+            const params = new URLSearchParams({ sort, limit: String(limit) });
+            const res = await request(`/posts/following-communities?${params}`);
             return Array.isArray(res) ? res.map(parsePost) : [];
         },
     },
@@ -499,6 +563,7 @@ const nexusApi = {
                 const params = {};
                 if (filter.author_id) params.author_id = filter.author_id;
                 if (filter.community_id) params.community_id = filter.community_id;
+                if (filter.status) params.status = filter.status;
                 if (filter.id) {
                     try {
                         const record = await request(`/posts/${filter.id}`);
@@ -660,11 +725,17 @@ const nexusApi = {
             }
         },
         Moderation: {
-            async banUser(id, reason) {
+            async banUser(id, reason = 'moderation action') {
                 return request(`/moderation/users/${id}/ban`, { method: 'POST', body: JSON.stringify({ reason }) });
             },
-            async unbanUser(id, reason) {
+            async unbanUser(id, reason = 'moderation action') {
                 return request(`/moderation/users/${id}/unban`, { method: 'POST', body: JSON.stringify({ reason }) });
+            },
+            async shadowBanUser(id, reason = 'moderation action') {
+                return request(`/moderation/users/${id}/shadow-ban`, { method: 'POST', body: JSON.stringify({ reason }) });
+            },
+            async unshadowBanUser(id, reason = 'moderation action') {
+                return request(`/moderation/users/${id}/unshadow-ban`, { method: 'POST', body: JSON.stringify({ reason }) });
             },
             async removePost(id, reason) {
                 return request(`/moderation/posts/${id}/remove`, { method: 'POST', body: JSON.stringify({ reason }) });

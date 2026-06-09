@@ -41,3 +41,30 @@ func AuthMiddleware(authService service.AuthService) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// OptionalAuthMiddleware parses a Bearer token when present and sets user context.
+// Missing or invalid tokens do not abort the request.
+func OptionalAuthMiddleware(authService service.AuthService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.Next()
+			return
+		}
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			c.Next()
+			return
+		}
+		claims, err := authService.ValidateToken(parts[1])
+		if err != nil {
+			c.Next()
+			return
+		}
+		c.Set("userID", claims.UserID)
+		c.Set("email", claims.Email)
+		c.Set("username", claims.Username)
+		c.Set("role", claims.Role)
+		c.Next()
+	}
+}

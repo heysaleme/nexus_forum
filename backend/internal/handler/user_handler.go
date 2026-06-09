@@ -1,11 +1,39 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"nexus-forum-backend/internal/model"
 )
+
+func viewerCanSeeModerationFields(c *gin.Context, targetUserID uint) bool {
+	roleVal, exists := c.Get("role")
+	if !exists {
+		return false
+	}
+	role := roleVal.(string)
+	if role != "admin" && role != "moderator" {
+		return false
+	}
+	if uid, ok := c.Get("userID"); ok {
+		if uid.(uint) == targetUserID {
+			return false
+		}
+	}
+	return true
+}
+
+func userResponse(u *model.User, includeModeration bool) map[string]interface{} {
+	data, _ := json.Marshal(u)
+	var out map[string]interface{}
+	_ = json.Unmarshal(data, &out)
+	if includeModeration {
+		out["is_shadow_banned"] = u.IsShadowBanned
+	}
+	return out
+}
 
 // ================= User Handlers =================
 
@@ -45,6 +73,11 @@ func (h *Handlers) GetUserByID(c *gin.Context) {
 	}
 
 	user.IsOnline = h.WSHub.IsUserOnline(user.ID)
+	includeMod := viewerCanSeeModerationFields(c, user.ID)
+	if includeMod {
+		c.JSON(http.StatusOK, userResponse(user, true))
+		return
+	}
 	c.JSON(http.StatusOK, user)
 }
 
@@ -97,10 +130,14 @@ func (h *Handlers) ListUsers(c *gin.Context) {
 	}
 
 	reqUserID, isAuthenticated := getOptionalUserID(c, h.AuthService)
-	var visibleUsers []*model.User
+	roleVal, _ := c.Get("role")
+	viewerRole, _ := roleVal.(string)
+	isModeratorViewer := viewerRole == "admin" || viewerRole == "moderator"
+
+	var visibleUsers []map[string]interface{}
 	for _, u := range users {
 		u.IsOnline = h.WSHub.IsUserOnline(u.ID)
-		if u.IsPrivate {
+		if u.IsPrivate && !isModeratorViewer {
 			isAuthorized := false
 			if isAuthenticated {
 				if reqUserID == u.ID {
@@ -113,10 +150,10 @@ func (h *Handlers) ListUsers(c *gin.Context) {
 				}
 			}
 			if !isAuthorized {
-				continue // skip private user if not authorized
+				continue
 			}
 		}
-		visibleUsers = append(visibleUsers, u)
+		visibleUsers = append(visibleUsers, userResponse(u, isModeratorViewer))
 	}
 
 	c.JSON(http.StatusOK, visibleUsers)

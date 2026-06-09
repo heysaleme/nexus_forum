@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Shield, Users, AlertTriangle, BarChart2, Search, Ban, Eye, CheckCircle, XCircle, Trash2 } from 'lucide-react';
+import { Shield, Users, AlertTriangle, BarChart2, Search, Ban, Eye, CheckCircle, XCircle, Trash2, EyeOff } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { motion } from 'framer-motion';
 import { useToast } from '@/components/ui/use-toast';
@@ -21,6 +21,10 @@ export default function AdminPanel() {
     const [communities, setCommunities] = useState([]);
     const [reports, setReports] = useState([]);
     const [dashboard, setDashboard] = useState(null);
+    const [activity7d, setActivity7d] = useState([]);
+    const [reportReasons, setReportReasons] = useState([]);
+    const [retention, setRetention] = useState({ d1: 0, d7: 0, d30: 0 });
+    const [engagement, setEngagement] = useState(null);
     const [loading, setLoading] = useState(true);
     const [userSearch, setUserSearch] = useState('');
 
@@ -32,16 +36,29 @@ export default function AdminPanel() {
     const loadData = async () => {
         setLoading(true);
         try {
-            const [usersData, communitiesData, reportsData, dashboardData] = await Promise.all([
+            const results = await Promise.allSettled([
                 nexusApi.entities.User.list('-created_date', 50),
                 nexusApi.entities.Community.list('-member_count', 30),
                 nexusApi.entities.Report.list(),
                 nexusApi.analytics.getDashboard(),
+                nexusApi.analytics.getActivity(7),
+                nexusApi.analytics.getReportReasons(),
+                nexusApi.analytics.getRetention(),
+                nexusApi.analytics.getEngagement(),
             ]);
-            setUsers(usersData);
-            setCommunities(communitiesData);
-            setReports(Array.isArray(reportsData) ? reportsData : []);
-            setDashboard(dashboardData);
+            const pick = (i, fallback) => (results[i].status === 'fulfilled' ? results[i].value : fallback);
+            setUsers(pick(0, []));
+            setCommunities(pick(1, []));
+            setReports(Array.isArray(pick(2, [])) ? pick(2, []) : []);
+            setDashboard(pick(3, null));
+            setActivity7d(pick(4, []));
+            setReportReasons(pick(5, []));
+            setRetention(pick(6, { d1: 0, d7: 0, d30: 0 }) || { d1: 0, d7: 0, d30: 0 });
+            setEngagement(pick(7, null));
+            const failed = results.find((r) => r.status === 'rejected');
+            if (failed) {
+                toast({ title: failed.reason?.message || 'Часть данных панели не загрузилась', variant: 'destructive' });
+            }
         } catch (err) {
             toast({ title: err.message || 'Не удалось загрузить данные панели', variant: 'destructive' });
         } finally {
@@ -50,8 +67,23 @@ export default function AdminPanel() {
     };
 
     const handleBanUser = async (u) => {
-        await nexusApi.entities.User.update(u.id, { is_banned: !u.is_banned });
+        if (u.is_banned) {
+            await nexusApi.entities.Moderation.unbanUser(u.id);
+        } else {
+            await nexusApi.entities.Moderation.banUser(u.id);
+        }
         toast({ title: u.is_banned ? '✅ Пользователь разблокирован' : '🚫 Пользователь заблокирован' });
+        loadData();
+    };
+
+    const handleShadowBanUser = async (u) => {
+        if (u.is_shadow_banned) {
+            await nexusApi.entities.Moderation.unshadowBanUser(u.id);
+            toast({ title: '👁️ Теневая блокировка снята' });
+        } else {
+            await nexusApi.entities.Moderation.shadowBanUser(u.id);
+            toast({ title: '🌑 Пользователь тенево заблокирован' });
+        }
         loadData();
     };
 
@@ -107,20 +139,21 @@ export default function AdminPanel() {
         users: row.count || 0,
     }));
 
-    const activity7dData = (dashboard?.activity_7d || []).map((row) => ({
+    const activity7dData = activity7d.map((row) => ({
         name: row.day ? String(row.day).slice(5) : '',
         users: row.users || 0,
         posts: row.posts || 0,
+        comments: row.comments || 0,
     }));
 
-    const pieData = (dashboard?.report_reasons || []).map((row) => ({
+    const pieData = reportReasons.map((row) => ({
         name: reasonLabels[row.reason] || row.reason || 'Неизвестно',
         value: row.count || 0,
     })).filter((item) => item.value > 0);
     const COLORS = ['#6A5AE0', '#8B7CFF', '#5EDFFF', '#EF4444', '#F59E0B', '#10B981'];
 
     const filteredUsers = users.filter(u =>
-        !userSearch || u.full_name?.toLowerCase().includes(userSearch.toLowerCase()) || u.email?.toLowerCase().includes(userSearch.toLowerCase())
+        !userSearch || u.username?.toLowerCase().includes(userSearch.toLowerCase()) || u.email?.toLowerCase().includes(userSearch.toLowerCase())
     );
 
     if (loading) return <LoadingSpinner size="lg" className="py-32" />;
@@ -169,6 +202,34 @@ export default function AdminPanel() {
                 ))}
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+                <div className="nexus-card p-4">
+                    <h3 className="font-bold text-sm mb-3">Удержание (retention)</h3>
+                    <div className="grid grid-cols-3 gap-3 text-center">
+                        {[
+                            { label: 'D1', value: retention.d1 },
+                            { label: 'D7', value: retention.d7 },
+                            { label: 'D30', value: retention.d30 },
+                        ].map(({ label, value }) => (
+                            <div key={label} className="bg-muted/40 rounded-xl p-3">
+                                <p className="text-lg font-black text-primary">{Number(value || 0).toFixed(1)}%</p>
+                                <p className="text-[10px] text-muted-foreground">{label}</p>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+                <div className="nexus-card p-4">
+                    <h3 className="font-bold text-sm mb-3">Вовлечённость</h3>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                        <p>Активные (7д): <span className="font-bold">{engagement?.active_users_7d ?? 0}</span></p>
+                        <p>Engagement score: <span className="font-bold">{Number(engagement?.engagement_score || 0).toFixed(2)}</span></p>
+                        <p>Всего постов: <span className="font-bold">{engagement?.total_posts ?? 0}</span></p>
+                        <p>Всего комментариев: <span className="font-bold">{engagement?.total_comments ?? 0}</span></p>
+                        <p>Всего голосов: <span className="font-bold">{engagement?.total_votes ?? 0}</span></p>
+                    </div>
+                </div>
+            </div>
+
             <Tabs defaultValue="stats">
                 <TabsList className="bg-muted/50 rounded-xl p-1 mb-4 w-full flex flex-nowrap overflow-x-auto scrollbar-hide justify-start">
                     <TabsTrigger value="stats" className="rounded-lg text-xs gap-1.5 flex-shrink-0"><BarChart2 className="w-3.5 h-3.5" />Статистика</TabsTrigger>
@@ -200,6 +261,10 @@ export default function AdminPanel() {
                                             <stop offset="5%" stopColor="#5EDFFF" stopOpacity={0.3} />
                                             <stop offset="95%" stopColor="#5EDFFF" stopOpacity={0} />
                                         </linearGradient>
+                                        <linearGradient id="colorWeekComments" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#F59E0B" stopOpacity={0.3} />
+                                            <stop offset="95%" stopColor="#F59E0B" stopOpacity={0} />
+                                        </linearGradient>
                                     </defs>
                                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                                     <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
@@ -207,6 +272,7 @@ export default function AdminPanel() {
                                     <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '12px', fontSize: '12px' }} />
                                     <Area type="monotone" dataKey="users" stroke="#6A5AE0" strokeWidth={2} fill="url(#colorWeekUsers)" name="Новые пользователи" />
                                     <Area type="monotone" dataKey="posts" stroke="#5EDFFF" strokeWidth={2} fill="url(#colorWeekPosts)" name="Новые посты" />
+                                    <Area type="monotone" dataKey="comments" stroke="#F59E0B" strokeWidth={2} fill="url(#colorWeekComments)" name="Новые комментарии" />
                                 </AreaChart>
                             </ResponsiveContainer>
                             )}
@@ -283,8 +349,9 @@ export default function AdminPanel() {
                                     <img src={u.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.email}`} className="w-9 h-9 rounded-full object-cover flex-shrink-0" alt="" />
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2">
-                                            <p className="text-sm font-bold truncate">{u.full_name || 'Пользователь'}</p>
+                                            <p className="text-sm font-bold truncate">{u.username || u.email || 'Пользователь'}</p>
                                             {u.is_banned && <Badge className="bg-destructive/10 text-destructive text-[9px] border-0">Заблокирован</Badge>}
+                                            {u.is_shadow_banned && <Badge className="bg-orange-100 text-orange-700 text-[9px] border-0">Теневой бан</Badge>}
                                         </div>
                                         <p className="text-xs text-muted-foreground">{u.email}</p>
                                     </div>
@@ -299,8 +366,11 @@ export default function AdminPanel() {
                                                 <SelectItem value="admin">Администратор</SelectItem>
                                             </SelectContent>
                                         </Select>
-                                        <Button variant="ghost" size="sm" onClick={() => handleBanUser(u)} className={`h-7 w-7 p-0 rounded-lg ${u.is_banned ? 'text-green-600 hover:bg-green-100' : 'text-destructive hover:bg-destructive/10'}`}>
+                                        <Button variant="ghost" size="sm" onClick={() => handleBanUser(u)} title={u.is_banned ? 'Разблокировать' : 'Заблокировать'} className={`h-7 w-7 p-0 rounded-lg ${u.is_banned ? 'text-green-600 hover:bg-green-100' : 'text-destructive hover:bg-destructive/10'}`}>
                                             {u.is_banned ? <CheckCircle className="w-4 h-4" /> : <Ban className="w-4 h-4" />}
+                                        </Button>
+                                        <Button variant="ghost" size="sm" onClick={() => handleShadowBanUser(u)} title={u.is_shadow_banned ? 'Снять теневой бан' : 'Теневой бан'} className={`h-7 w-7 p-0 rounded-lg ${u.is_shadow_banned ? 'text-green-600 hover:bg-green-100' : 'text-orange-600 hover:bg-orange-100'}`}>
+                                            {u.is_shadow_banned ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                                         </Button>
                                     </div>
                                 </div>

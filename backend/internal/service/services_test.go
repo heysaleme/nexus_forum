@@ -5,8 +5,10 @@ import (
 	"os"
 	"testing"
 
+	"nexus-forum-backend/internal/email"
 	"nexus-forum-backend/internal/model"
 	"nexus-forum-backend/internal/repository"
+	"nexus-forum-backend/internal/search"
 	"nexus-forum-backend/internal/service"
 
 	"gorm.io/driver/sqlite"
@@ -37,9 +39,13 @@ func setupDB(t *testing.T) *gorm.DB {
 		&model.Report{},
 		&model.PasswordResetToken{},
 		&model.RefreshToken{},
+		&model.EmailVerification{},
 	)
 	if err != nil {
 		t.Fatalf("failed to auto-migrate: %v", err)
+	}
+	if err := search.Init(db); err != nil {
+		t.Fatalf("failed to init search: %v", err)
 	}
 	return db
 }
@@ -49,16 +55,25 @@ func init() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
 }
 
+func newTestAuthService(db *gorm.DB, secret string) service.AuthService {
+	return service.NewAuthService(
+		repository.NewUserRepository(db),
+		repository.NewModerationRepository(db),
+		repository.NewPasswordResetRepository(db),
+		repository.NewRefreshTokenRepository(db),
+		repository.NewEmailVerificationRepository(db),
+		email.NewMailer(email.Config{}),
+		secret,
+	)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth Service Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
 func TestAuthService_RegisterAndVerifyOTP(t *testing.T) {
 	db := setupDB(t)
-	userRepo := repository.NewUserRepository(db)
-	modRepo := repository.NewModerationRepository(db)
-	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "test-secret-1234")
+	authSvc := newTestAuthService(db, "test-secret-1234")
 
 	email := "alice@example.com"
 	pass := "securepass"
@@ -95,9 +110,7 @@ func TestAuthService_RegisterAndVerifyOTP(t *testing.T) {
 func TestAuthService_Login(t *testing.T) {
 	db := setupDB(t)
 	userRepo := repository.NewUserRepository(db)
-	modRepo := repository.NewModerationRepository(db)
-	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "test-secret-5678")
+	authSvc := newTestAuthService(db, "test-secret-5678")
 
 	email := "bob@example.com"
 	pass := "hunter2"
@@ -134,10 +147,7 @@ func TestAuthService_Login(t *testing.T) {
 
 func TestAuthService_RefreshToken(t *testing.T) {
 	db := setupDB(t)
-	userRepo := repository.NewUserRepository(db)
-	modRepo := repository.NewModerationRepository(db)
-	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "refresh-secret")
+	authSvc := newTestAuthService(db, "refresh-secret")
 
 	_ = authSvc.Register("refresh@example.com", "pass1234")
 	_, refreshToken, _, _ := authSvc.VerifyOTP("refresh@example.com", "123456")
@@ -158,10 +168,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 func TestAuthService_PasswordReset(t *testing.T) {
 	db := setupDB(t)
-	userRepo := repository.NewUserRepository(db)
-	modRepo := repository.NewModerationRepository(db)
-	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "reset-secret")
+	authSvc := newTestAuthService(db, "reset-secret")
 
 	email := "reset@example.com"
 	pass := "oldpass123"
@@ -199,10 +206,7 @@ func TestAuthService_PasswordReset(t *testing.T) {
 
 func TestAuthService_ValidateToken(t *testing.T) {
 	db := setupDB(t)
-	userRepo := repository.NewUserRepository(db)
-	modRepo := repository.NewModerationRepository(db)
-	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "my-secret")
+	authSvc := newTestAuthService(db, "my-secret")
 
 	_ = authSvc.Register("carol@example.com", "pass")
 	token, _, _, _ := authSvc.VerifyOTP("carol@example.com", "123456")
@@ -232,8 +236,7 @@ func TestUserService_FollowAndXP(t *testing.T) {
 	followRepo := repository.NewFollowRepository(db)
 	notifRepo := repository.NewNotificationRepository(db)
 	modRepo := repository.NewModerationRepository(db)
-	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "xp-secret")
+	authSvc := newTestAuthService(db, "xp-secret")
 	userSvc := service.NewUserService(userRepo, followRepo, notifRepo, modRepo)
 
 	_ = authSvc.Register("dave@example.com", "pass")
@@ -274,8 +277,7 @@ func TestUserService_LevelProgression(t *testing.T) {
 	followRepo := repository.NewFollowRepository(db)
 	notifRepo := repository.NewNotificationRepository(db)
 	modRepo := repository.NewModerationRepository(db)
-	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "lvl-secret")
+	authSvc := newTestAuthService(db, "lvl-secret")
 	userSvc := service.NewUserService(userRepo, followRepo, notifRepo, modRepo)
 
 	_ = authSvc.Register("frank@example.com", "pass")
@@ -312,9 +314,7 @@ func TestPostService_CreateAndVote(t *testing.T) {
 	voteRepo := repository.NewVoteRepository(db)
 	savedRepo := repository.NewSavedPostRepository(db)
 	notifRepo := repository.NewNotificationRepository(db)
-	modRepo := repository.NewModerationRepository(db)
-	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "post-secret")
+	authSvc := newTestAuthService(db, "post-secret")
 	postSvc := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, savedRepo, notifRepo)
 
 	_ = authSvc.Register("hannah@example.com", "pass")
@@ -375,9 +375,7 @@ func TestPostService_SaveAndUnsave(t *testing.T) {
 	voteRepo := repository.NewVoteRepository(db)
 	savedRepo := repository.NewSavedPostRepository(db)
 	notifRepo := repository.NewNotificationRepository(db)
-	modRepo := repository.NewModerationRepository(db)
-	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "save-secret")
+	authSvc := newTestAuthService(db, "save-secret")
 	postSvc := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, savedRepo, notifRepo)
 
 	_ = authSvc.Register("julia@example.com", "pass")
@@ -423,9 +421,7 @@ func TestCommentService_CreateAndVote(t *testing.T) {
 	voteRepo := repository.NewVoteRepository(db)
 	savedRepo := repository.NewSavedPostRepository(db)
 	notifRepo := repository.NewNotificationRepository(db)
-	modRepo := repository.NewModerationRepository(db)
-	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "comment-secret")
+	authSvc := newTestAuthService(db, "comment-secret")
 	postSvc := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, savedRepo, notifRepo)
 	commentSvc := service.NewCommentService(commentRepo, userRepo, postRepo, voteRepo, notifRepo, commRepo)
 
@@ -490,8 +486,7 @@ func TestModerationService_BanAndUnban(t *testing.T) {
 	modRepo := repository.NewModerationRepository(db)
 	keywordFilterRepo := repository.NewKeywordFilterRepository(db)
 
-	resetRepo := repository.NewPasswordResetRepository(db)
-	authSvc := service.NewAuthService(userRepo, modRepo, resetRepo, repository.NewRefreshTokenRepository(db), "mod-secret")
+	authSvc := newTestAuthService(db, "mod-secret")
 	postSvc := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, savedRepo, notifRepo)
 	modSvc := service.NewModerationService(modRepo, userRepo, postRepo, commentRepo, commRepo, notifRepo, keywordFilterRepo)
 

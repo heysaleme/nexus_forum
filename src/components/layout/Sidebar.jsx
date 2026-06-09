@@ -21,7 +21,7 @@ export default function Sidebar({ user }) {
     const { notifications, chats } = useUnreadCounts(user);
 
     return (
-        <aside className="hidden md:flex flex-col w-64 h-screen sticky top-0 bg-card border-r border-border/50 p-4 gap-2 overflow-y-auto scrollbar-hide">
+        <aside className="hidden md:flex flex-col w-64 h-screen fixed left-0 top-0 bg-card border-r border-border/50 p-4 gap-2 overflow-hidden">
             {/* Logo */}
             <Link to="/" className="flex items-center gap-3 px-3 py-4 mb-2">
                 <div className="w-9 h-9 nexus-gradient rounded-xl flex items-center justify-center shadow-nexus">
@@ -31,9 +31,11 @@ export default function Sidebar({ user }) {
             </Link>
 
             {/* Nav items */}
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1 flex-1 min-h-0 overflow-hidden">
                 {navItems.map(({ icon: Icon, label, path, badge }) => {
-                    const isActive = location.pathname === path;
+                    const isActive = path === '/profile'
+                        ? (location.pathname === '/profile' || location.pathname === `/user/${user?.id}`)
+                        : location.pathname === path;
                     const dynamicBadge = path === '/notifications'
                         ? notifications
                         : path === '/chats'
@@ -51,7 +53,7 @@ export default function Sidebar({ user }) {
                             <motion.div
                                 whileHover={{ x: 2 }}
                                 whileTap={{ scale: 0.98 }}
-                                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${isActive
+                                className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${isActive
                                         ? 'bg-primary/10 text-primary font-semibold'
                                         : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                                     }`}

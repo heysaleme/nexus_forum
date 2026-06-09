@@ -15,6 +15,8 @@ type PostService interface {
 	Delete(userID, postID uint) error
 	List(sortSpec string, limit int, viewerID uint) ([]*model.Post, error)
 	ListFollowing(userID uint, sortSpec string, limit int) ([]*model.Post, error)
+	ListFollowingCommunities(userID uint, sortSpec string, limit int) ([]*model.Post, error)
+	PublishDueScheduled() (int64, error)
 	Filter(filter map[string]interface{}, sortSpec string, limit int, viewerID uint) ([]*model.Post, error)
 	Vote(userID, postID uint, value int) error
 	VotePoll(userID, postID uint, optionIndex int) error
@@ -60,14 +62,16 @@ func (s *postService) Create(post *model.Post) error {
 		return err
 	}
 
-	// Update community post count
+	if post.Status != "published" {
+		return nil
+	}
+
 	comm, _ := s.commRepo.GetByID(post.CommunityID)
 	if comm != nil {
 		comm.PostCount++
 		_ = s.commRepo.Update(comm)
 	}
 
-	// Add XP
 	author, _ := s.userRepo.GetByID(post.AuthorID)
 	if author != nil {
 		author.XP += 20
@@ -130,6 +134,14 @@ func (s *postService) List(sortSpec string, limit int, viewerID uint) ([]*model.
 
 func (s *postService) ListFollowing(userID uint, sortSpec string, limit int) ([]*model.Post, error) {
 	return s.repo.ListByFollowing(userID, sortSpec, limit, userID)
+}
+
+func (s *postService) ListFollowingCommunities(userID uint, sortSpec string, limit int) ([]*model.Post, error) {
+	return s.repo.ListByCommunityMembership(userID, sortSpec, limit, userID)
+}
+
+func (s *postService) PublishDueScheduled() (int64, error) {
+	return s.repo.PublishDueScheduled()
 }
 
 func (s *postService) Filter(filter map[string]interface{}, sortSpec string, limit int, viewerID uint) ([]*model.Post, error) {

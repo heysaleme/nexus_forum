@@ -2,6 +2,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { Home, Compass, PlusCircle, MessageCircle, User, Shield } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/lib/AuthContext';
+import { useChatLayout } from '@/lib/ChatLayoutContext';
 
 const navItems = [
     { icon: Home, label: 'Главная', path: '/' },
@@ -14,6 +15,8 @@ const navItems = [
 export default function BottomNav() {
     const location = useLocation();
     const { user, triggerAuthModal } = useAuth();
+    const { mobileChatOpen } = useChatLayout();
+    if (mobileChatOpen) return null;
 
     const items = [...navItems];
     if (user && (user.role === 'admin' || user.role === 'moderator')) {
@@ -24,7 +27,9 @@ export default function BottomNav() {
         <nav className="fixed bottom-0 left-0 right-0 z-50 glass border-t border-border/50 md:hidden max-w-[100vw] overflow-hidden">
             <div className="flex items-center justify-between px-1 py-2 w-full max-w-lg mx-auto">
                 {items.map(({ icon: Icon, label, path, isCenter }) => {
-                    const isActive = location.pathname === path;
+                    const isActive = path === '/profile'
+                        ? (location.pathname === '/profile' || location.pathname === `/user/${user?.id}`)
+                        : location.pathname === path || (path === '/admin' && location.pathname.startsWith('/admin'));
                     const requiresAuth = ['/create', '/chats', '/profile'].includes(path);
                     const handleClick = (e) => {
                         if (requiresAuth && !user) {

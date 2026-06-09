@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { nexusApi } from '@/api/nexusApi';
 import { useAuth } from '@/lib/AuthContext';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
@@ -12,6 +12,8 @@ import { ru } from 'date-fns/locale';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useToast } from '@/components/ui/use-toast';
 import { validateFileSize, UPLOAD_LIMITS_MB, limitLabelForCategory } from '@/lib/validateFileSize';
+import { useChatLayout } from '@/lib/ChatLayoutContext';
+import { profilePath } from '@/lib/profileLink';
 import {
     Dialog,
     DialogContent,
@@ -121,6 +123,7 @@ function ChatBubble({ message, isOwn, onEdit, onDelete, canEdit, canDelete }) {
 export default function Chats() {
     const { user } = useAuth();
     const { toast } = useToast();
+    const { setMobileChatOpen } = useChatLayout();
     const [searchParams] = useSearchParams();
     const userIdParam = searchParams.get('userId');
 
@@ -165,13 +168,20 @@ export default function Chats() {
         }
     }, [user, userIdParam, rooms.length]);
 
-    useEffect(() => {
-        if (!selectedRoom?.id) return;
-        console.log("WS EFFECT START", selectedRoom?.id);
+    useLayoutEffect(() => {
+        const isMobile = window.innerWidth < 768;
+        const open = isMobile && !!selectedRoom;
+        setMobileChatOpen(open);
+        if (open) {
+            document.body.classList.add('chat-fullscreen');
+        } else {
+            document.body.classList.remove('chat-fullscreen');
+        }
         return () => {
-            console.log("WS EFFECT CLEANUP", selectedRoom?.id);
+            setMobileChatOpen(false);
+            document.body.classList.remove('chat-fullscreen');
         };
-    }, [selectedRoom?.id]);
+    }, [selectedRoom, setMobileChatOpen]);
 
     useEffect(() => {
         if (!selectedRoom) return;
@@ -716,18 +726,8 @@ export default function Chats() {
         );
     }
 
-    useEffect(() => {
-        console.table(
-            messages.map(m => ({
-                id: m.id,
-                sender: m.sender_id,
-                content: m.content
-            }))
-        );
-    }, [messages]);
-
     return (
-        <div className="flex h-[calc(100vh-4rem)] md:h-[calc(100vh-3.5rem)]">
+        <div className={`flex ${selectedRoom ? 'fixed inset-0 z-[100] bg-background md:static md:z-auto h-dvh md:h-[calc(100vh-3.5rem)]' : 'h-full md:h-[calc(100vh-3.5rem)]'}`}>
             {/* Sidebar */}
             <div className={`w-full md:w-80 border-r border-border/50 flex flex-col ${selectedRoom ? 'hidden md:flex' : 'flex'}`}>
                 <div className="p-3 border-b border-border/50">

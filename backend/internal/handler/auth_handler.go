@@ -6,7 +6,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"nexus-forum-backend/internal/dto"
-	"nexus-forum-backend/internal/model"
 )
 
 // ================= Auth Handlers =================
@@ -26,7 +25,24 @@ func (h *Handlers) Register(c *gin.Context) {
 	}
 
 	slog.Info("user registration initiated", "email", req.Email)
-	c.JSON(http.StatusOK, gin.H{"success": true, "otp_required": true})
+	c.JSON(http.StatusOK, gin.H{
+		"success":         true,
+		"otp_required":    true,
+		"smtp_configured": h.SMTPConfigured,
+	})
+}
+
+func (h *Handlers) ResendOTP(c *gin.Context) {
+	var req dto.ResendOTPRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.AuthService.ResendVerification(req.Email); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "smtp_configured": h.SMTPConfigured})
 }
 
 func (h *Handlers) VerifyOTP(c *gin.Context) {
@@ -60,7 +76,9 @@ func (h *Handlers) Login(c *gin.Context) {
 		return
 	}
 
-	accessToken, refreshToken, user, err := h.AuthService.Login(req.Email, req.Password)
+	accessToken, refreshToken, user, err := h.AuthService.LoginWithContext(
+		req.Email, req.Password, c.GetHeader("User-Agent"), c.ClientIP(),
+	)
 	if err != nil {
 		slog.Warn("login attempt failed", "email", req.Email, "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -109,23 +127,53 @@ func (h *Handlers) UpdateMe(c *gin.Context) {
 		return
 	}
 
-	userReq := model.User{
-		Username:     req.Username,
-		Bio:          req.Bio,
-		Title:        req.Title,
-		AvatarURL:    req.AvatarURL,
-		BannerURL:    req.BannerURL,
-		ProfileTheme: req.ProfileTheme,
-	}
-	if req.AllowDMs != nil {
-		userReq.AllowDMs = *req.AllowDMs
-	}
-	if req.IsPrivate != nil {
-		userReq.IsPrivate = *req.IsPrivate
+	user, err := h.UserService.GetByID(uid)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
 	}
 
-	user, err := h.UserService.UpdateProfile(uid, userReq)
-	if err != nil {
+	if req.Username != "" {
+		user.Username = req.Username
+	}
+	if req.Bio != "" {
+		user.Bio = req.Bio
+	}
+	if req.Title != "" {
+		user.Title = req.Title
+	}
+	if req.AvatarURL != "" {
+		user.AvatarURL = req.AvatarURL
+	}
+	if req.BannerURL != "" {
+		user.BannerURL = req.BannerURL
+	}
+	if req.ProfileTheme != "" {
+		user.ProfileTheme = req.ProfileTheme
+	}
+	if req.AllowDMs != nil {
+		user.AllowDMs = *req.AllowDMs
+	}
+	if req.IsPrivate != nil {
+		user.IsPrivate = *req.IsPrivate
+	}
+	if req.EmailNotifyReply != nil {
+		user.EmailNotifyReply = *req.EmailNotifyReply
+	}
+	if req.EmailNotifyMention != nil {
+		user.EmailNotifyMention = *req.EmailNotifyMention
+	}
+	if req.EmailNotifyFollow != nil {
+		user.EmailNotifyFollow = *req.EmailNotifyFollow
+	}
+	if req.EmailNotifyModeration != nil {
+		user.EmailNotifyModeration = *req.EmailNotifyModeration
+	}
+	if req.EmailNotifyReport != nil {
+		user.EmailNotifyReport = *req.EmailNotifyReport
+	}
+
+	if err := h.UserService.Save(user); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -175,7 +223,9 @@ func (h *Handlers) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	accessToken, refreshToken, err := h.AuthService.RefreshAccessToken(req.RefreshToken)
+	accessToken, refreshToken, err := h.AuthService.RefreshAccessTokenWithContext(
+		req.RefreshToken, c.GetHeader("User-Agent"), c.ClientIP(),
+	)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
@@ -185,6 +235,51 @@ func (h *Handlers) RefreshToken(c *gin.Context) {
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
 	})
+}
+
+func (h *Handlers) ListSessions(c *gin.Context) {
+	uid, ok := getUserID(c)
+	if !ok {
+		return
+	}
+	sessions, err := h.AuthService.ListSessions(uid)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, sessions)
+}
+
+func (h *Handlers) RevokeSession(c *gin.Context) {
+	uid, ok := getUserID(c)
+	if !ok {
+		return
+	}
+	sessionID, ok := parseID(c, "id")
+	if !ok {
+		return
+	}
+	if err := h.AuthService.RevokeSession(uid, sessionID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func (h *Handlers) RevokeOtherSessions(c *gin.Context) {
+	uid, ok := getUserID(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		KeepSessionID uint `json:"keep_session_id"`
+	}
+	_ = c.ShouldBindJSON(&body)
+	if err := h.AuthService.RevokeOtherSessions(uid, body.KeepSessionID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 func (h *Handlers) ForgotPassword(c *gin.Context) {

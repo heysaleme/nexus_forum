@@ -16,7 +16,8 @@ type Post struct {
 	Downvotes    int    `gorm:"default:0" json:"downvotes"`
 	Views        int    `gorm:"default:0" json:"views"`
 	CommentCount int    `gorm:"default:0" json:"comment_count"`
-	Status       string `gorm:"default:published;index:idx_posts_author_status,priority:2" json:"status"` // "draft", "published", "removed"
+	Status       string `gorm:"default:published;index:idx_posts_author_status,priority:2" json:"status"` // "draft", "published", "scheduled", "removed"
+	PublishAt    *time.Time `gorm:"index" json:"publish_at,omitempty"`
 	MediaUrls    string `gorm:"type:text" json:"media_urls"`     // JSON array of strings
 	LinkUrl      string `json:"link_url"`
 	Tags         string `gorm:"type:text" json:"tags"` // JSON array of strings

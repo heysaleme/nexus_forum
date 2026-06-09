@@ -19,20 +19,22 @@ export default function Register() {
     const [showOtp, setShowOtp] = useState(false);
     const [otpCode, setOtpCode] = useState("");
     const [oauthLoading, setOauthLoading] = useState(null);
+    const [otpDevHint, setOtpDevHint] = useState("");
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError("");
         if (password !== confirmPassword) {
-            setError("Passwords do not match");
+            setError("Пароли не совпадают");
             return;
         }
         setLoading(true);
         try {
-            await nexusApi.auth.register({ email, password });
+            const res = await nexusApi.auth.register({ email, password });
+            setOtpDevHint(res?.smtp_configured ? "" : "Код для разработки (без SMTP): 123456");
             setShowOtp(true);
         } catch (err) {
-            setError(err.message || "Registration failed");
+            setError(err.message || "Не удалось зарегистрироваться");
         } finally {
             setLoading(false);
         }
@@ -82,8 +84,8 @@ export default function Register() {
         return (
             <AuthLayout
                 icon={Mail}
-                title="Verify your email"
-                subtitle={`We sent a code to ${email}`}
+                title="Подтвердите email"
+                subtitle={otpDevHint || `Мы отправили код на ${email}`}
             >
                 {error && (
                     <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
@@ -123,9 +125,9 @@ export default function Register() {
                     )}
                 </Button>
                 <p className="text-center text-sm text-muted-foreground mt-4">
-                    Didn't receive the code?{" "}
-                    <button onClick={handleResend} className="text-primary font-medium hover:underline">
-                        Resend
+                    Не получили код?{" "}
+                    <button type="button" onClick={handleResend} className="text-primary font-medium hover:underline">
+                        Отправить снова
                     </button>
                 </p>
             </AuthLayout>

@@ -22,6 +22,8 @@ type AnalyticsRepository interface {
 	CountCommunities() (int64, error)
 	CountPublishedPosts() (int64, error)
 	CountPendingReports() (int64, error)
+	GetRetentionRates() (map[string]float64, error)
+	GetEngagementStats() (map[string]interface{}, error)
 }
 
 type analyticsRepository struct {
@@ -179,24 +181,36 @@ func (r *analyticsRepository) GetActivitySeries(days int) ([]map[string]interfac
 		return nil, err
 	}
 
+	var commentRows []dayCount
+	commentQuery := "SELECT DATE(created_at) as day, COUNT(*) as count FROM comments " +
+		"WHERE created_at >= DATE('now', '" + interval + "') " +
+		"GROUP BY DATE(created_at) ORDER BY day ASC"
+	if err := r.db.Raw(commentQuery).Scan(&commentRows).Error; err != nil {
+		return nil, err
+	}
+
 	byDay := make(map[string]map[string]interface{})
-	for _, row := range userRows {
-		byDay[row.Day] = map[string]interface{}{
-			"day":   row.Day,
-			"users": row.Count,
-			"posts": int64(0),
+	ensureDay := func(day string) map[string]interface{} {
+		if entry, ok := byDay[day]; ok {
+			return entry
 		}
+		entry := map[string]interface{}{
+			"day":      day,
+			"users":    int64(0),
+			"posts":    int64(0),
+			"comments": int64(0),
+		}
+		byDay[day] = entry
+		return entry
+	}
+	for _, row := range userRows {
+		ensureDay(row.Day)["users"] = row.Count
 	}
 	for _, row := range postRows {
-		if entry, ok := byDay[row.Day]; ok {
-			entry["posts"] = row.Count
-		} else {
-			byDay[row.Day] = map[string]interface{}{
-				"day":   row.Day,
-				"users": int64(0),
-				"posts": row.Count,
-			}
-		}
+		ensureDay(row.Day)["posts"] = row.Count
+	}
+	for _, row := range commentRows {
+		ensureDay(row.Day)["comments"] = row.Count
 	}
 
 	daysList := make([]string, 0, len(byDay))
@@ -217,4 +231,96 @@ func (r *analyticsRepository) GetActivitySeries(days int) ([]map[string]interfac
 		series = append(series, byDay[day])
 	}
 	return series, nil
+}
+
+func (r *analyticsRepository) GetRetentionRates() (map[string]float64, error) {
+	cohorts := []struct {
+		key  string
+		days int
+	}{
+		{"d1", 1},
+		{"d7", 7},
+		{"d30", 30},
+	}
+	out := map[string]float64{"d1": 0, "d7": 0, "d30": 0}
+	for _, c := range cohorts {
+		rate, err := r.retentionForDay(c.days)
+		if err != nil {
+			return nil, err
+		}
+		out[c.key] = rate
+	}
+	return out, nil
+}
+
+func (r *analyticsRepository) retentionForDay(dayOffset int) (float64, error) {
+	type row struct {
+		Cohort int64 `gorm:"column:cohort"`
+		Back   int64 `gorm:"column:returned"`
+	}
+	var result row
+	query := fmt.Sprintf(`
+		SELECT
+			COUNT(DISTINCT u.id) AS cohort,
+			COUNT(DISTINCT CASE
+				WHEN EXISTS (
+					SELECT 1 FROM analytics_events e
+					WHERE e.user_id = u.id
+					AND DATE(e.created_at) = DATE(u.created_at, '+%d days')
+				) THEN u.id END) AS returned
+		FROM users u
+		WHERE u.created_at <= DATE('now', '-%d days')
+	`, dayOffset, dayOffset)
+	if err := r.db.Raw(query).Scan(&result).Error; err != nil {
+		return 0, err
+	}
+	if result.Cohort == 0 {
+		return 0, nil
+	}
+	return float64(result.Back) / float64(result.Cohort) * 100, nil
+}
+
+func (r *analyticsRepository) GetEngagementStats() (map[string]interface{}, error) {
+	type countRow struct {
+		UserID uint  `gorm:"column:user_id"`
+		Count  int64 `gorm:"column:count"`
+	}
+
+	var postCounts []countRow
+	_ = r.db.Table("posts").Select("author_id as user_id, COUNT(*) as count").
+		Where("status = ?", "published").Group("author_id").Order("count DESC").Limit(10).Scan(&postCounts)
+
+	var commentCounts []countRow
+	_ = r.db.Table("comments").Select("author_id as user_id, COUNT(*) as count").
+		Group("author_id").Order("count DESC").Limit(10).Scan(&commentCounts)
+
+	var voteCounts []countRow
+	_ = r.db.Table("votes").Select("user_id, COUNT(*) as count").
+		Group("user_id").Order("count DESC").Limit(10).Scan(&voteCounts)
+
+	activeUsers, _ := r.CountActiveUsers(time.Now().Add(-7 * 24 * time.Hour))
+
+	var totalPosts int64
+	_ = r.db.Model(&model.Post{}).Where("status = ?", "published").Count(&totalPosts)
+	var totalComments int64
+	_ = r.db.Model(&model.Comment{}).Count(&totalComments)
+	var totalVotes int64
+	_ = r.db.Model(&model.Vote{}).Count(&totalVotes)
+	totalUsers, _ := r.CountTotalUsers()
+
+	engagementScore := float64(0)
+	if totalUsers > 0 {
+		engagementScore = float64(totalPosts+totalComments+totalVotes) / float64(totalUsers)
+	}
+
+	return map[string]interface{}{
+		"posts_per_user_top":    postCounts,
+		"comments_per_user_top": commentCounts,
+		"votes_per_user_top":    voteCounts,
+		"active_users_7d":       activeUsers,
+		"engagement_score":      engagementScore,
+		"total_posts":           totalPosts,
+		"total_comments":        totalComments,
+		"total_votes":           totalVotes,
+	}, nil
 }
