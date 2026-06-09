@@ -208,6 +208,24 @@ func (h *Handlers) UpdateMe(c *gin.Context) {
 	if req.EmailNotifyReport != nil {
 		user.EmailNotifyReport = *req.EmailNotifyReport
 	}
+	if req.PushNotifyComments != nil {
+		user.PushNotifyComments = *req.PushNotifyComments
+	}
+	if req.PushNotifyReplies != nil {
+		user.PushNotifyReplies = *req.PushNotifyReplies
+	}
+	if req.PushNotifyMentions != nil {
+		user.PushNotifyMentions = *req.PushNotifyMentions
+	}
+	if req.PushNotifyFollowers != nil {
+		user.PushNotifyFollowers = *req.PushNotifyFollowers
+	}
+	if req.PushNotifyMessages != nil {
+		user.PushNotifyMessages = *req.PushNotifyMessages
+	}
+	if req.PushNotifyModeration != nil {
+		user.PushNotifyModeration = *req.PushNotifyModeration
+	}
 
 	if err := h.UserService.Save(user); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

@@ -13,6 +13,8 @@ type PushService interface {
 	Subscribe(userID uint, endpoint, p256dh, auth string) error
 	Unsubscribe(userID uint, endpoint string) error
 	SendToUser(user *model.User, notifType, title, body string) error
+	SendTest(user *model.User) error
+	HasSubscription(userID uint) (bool, error)
 	PublicKey() string
 }
 
@@ -42,6 +44,8 @@ func (s *pushService) shouldSend(user *model.User, notifType string) bool {
 		return false
 	}
 	switch notifType {
+	case "test":
+		return true
 	case "comment":
 		return user.PushNotifyComments
 	case "reply":
@@ -55,6 +59,18 @@ func (s *pushService) shouldSend(user *model.User, notifType string) bool {
 	default:
 		return user.PushNotifyModeration
 	}
+}
+
+func (s *pushService) HasSubscription(userID uint) (bool, error) {
+	subs, err := s.repo.ListByUser(userID)
+	if err != nil {
+		return false, err
+	}
+	return len(subs) > 0, nil
+}
+
+func (s *pushService) SendTest(user *model.User) error {
+	return s.SendToUser(user, "test", "Nexus Forum", "Тестовое push-уведомление")
 }
 
 func (s *pushService) SendToUser(user *model.User, notifType, title, body string) error {

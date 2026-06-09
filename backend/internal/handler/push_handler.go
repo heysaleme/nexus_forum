@@ -36,6 +36,39 @@ func (h *Handlers) SubscribePush(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+func (h *Handlers) GetPushStatus(c *gin.Context) {
+	uid, ok := getUserID(c)
+	if !ok {
+		return
+	}
+	hasSub, err := h.PushService.HasSubscription(uid)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"subscribed":     hasSub,
+		"vapid_configured": h.PushService.PublicKey() != "",
+	})
+}
+
+func (h *Handlers) TestPush(c *gin.Context) {
+	uid, ok := getUserID(c)
+	if !ok {
+		return
+	}
+	user, err := h.UserService.GetByID(uid)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+	if err := h.PushService.SendTest(user); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
 func (h *Handlers) UnsubscribePush(c *gin.Context) {
 	uid, ok := getUserID(c)
 	if !ok {

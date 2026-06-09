@@ -38,6 +38,12 @@ type UpdateProfileRequest struct {
 	EmailNotifyFollow     *bool `json:"email_notify_follow"`
 	EmailNotifyModeration *bool `json:"email_notify_moderation"`
 	EmailNotifyReport     *bool `json:"email_notify_report"`
+	PushNotifyComments    *bool `json:"push_notify_comments"`
+	PushNotifyReplies     *bool `json:"push_notify_replies"`
+	PushNotifyMentions    *bool `json:"push_notify_mentions"`
+	PushNotifyFollowers   *bool `json:"push_notify_followers"`
+	PushNotifyMessages    *bool `json:"push_notify_messages"`
+	PushNotifyModeration  *bool `json:"push_notify_moderation"`
 }
 
 type ResendOTPRequest struct {

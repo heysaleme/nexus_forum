@@ -376,8 +376,10 @@ func main() {
 			secured.POST("/notifications/:id/read", handlers.MarkNotificationRead)
 			secured.PUT("/notifications/:id", handlers.MarkNotificationRead)
 			secured.GET("/push/vapid-public-key", handlers.GetPushPublicKey)
+			secured.GET("/push/status", handlers.GetPushStatus)
 			secured.POST("/push/subscribe", handlers.SubscribePush)
 			secured.POST("/push/unsubscribe", handlers.UnsubscribePush)
+			secured.POST("/push/test", handlers.TestPush)
 
 			// Reports (any authenticated user)
 			secured.POST("/reports", handlers.CreateReport)

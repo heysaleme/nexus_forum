@@ -121,7 +121,7 @@ func LoadConfig() (*Config, error) {
 		RabbitMQURL:        os.Getenv("RABBITMQ_URL"),
 		VAPIDPublic:        os.Getenv("VAPID_PUBLIC_KEY"),
 		VAPIDPrivate:       os.Getenv("VAPID_PRIVATE_KEY"),
-		VAPIDSubject:       envOr("VAPID_SUBJECT", frontendURL),
+		VAPIDSubject:       envOr("VAPID_SUBJECT", envOr("VAPID_EMAIL", "mailto:admin@nexus-forum.local")),
 	}, nil
 }
 

@@ -13,6 +13,13 @@ import { useToast } from '@/components/ui/use-toast';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import { useNavigate } from 'react-router-dom';
 import { validateFileSize, UPLOAD_LIMITS_MB, limitLabelForCategory } from '@/lib/validateFileSize';
+import {
+    isPushSupported,
+    getNotificationPermission,
+    subscribeToPush,
+    unsubscribeFromPush,
+    getLocalPushSubscription,
+} from '@/lib/pushNotifications';
 
 const THEMES = [
     { id: 'default', label: 'По умолчанию', gradient: 'from-primary/30 to-accent/30' },
@@ -40,7 +47,10 @@ export default function Settings() {
     });
 
     const [pushSubscribing, setPushSubscribing] = useState(false);
-    const [pushSupported] = useState(() => typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window);
+    const [pushSupported] = useState(() => isPushSupported());
+    const [pushPermission, setPushPermission] = useState(() => getNotificationPermission());
+    const [pushSubscribed, setPushSubscribed] = useState(false);
+    const [pushServerConfigured, setPushServerConfigured] = useState(true);
 
     const [pendingRequests, setPendingRequests] = useState([]);
     const [loadingRequests, setLoadingRequests] = useState(false);
@@ -62,6 +72,21 @@ export default function Settings() {
             console.error('Failed to load pending requests:', err);
         }
         setLoadingRequests(false);
+    };
+
+    const refreshPushStatus = async () => {
+        if (!pushSupported || !user) return;
+        setPushPermission(getNotificationPermission());
+        try {
+            const [localSub, serverStatus] = await Promise.all([
+                getLocalPushSubscription(),
+                nexusApi.push.getStatus().catch(() => ({ subscribed: false, vapid_configured: false })),
+            ]);
+            setPushSubscribed(Boolean(localSub && serverStatus?.subscribed));
+            setPushServerConfigured(serverStatus?.vapid_configured !== false);
+        } catch {
+            setPushSubscribed(false);
+        }
     };
 
     useEffect(() => {
@@ -91,6 +116,7 @@ export default function Settings() {
                 loadPendingRequests();
             }
             loadSessions();
+            refreshPushStatus();
         }
     }, [user]);
 
@@ -221,17 +247,6 @@ export default function Settings() {
         nexusApi.auth.logout('/');
     };
 
-    const urlBase64ToUint8Array = (base64String) => {
-        const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-        const rawData = window.atob(base64);
-        const outputArray = new Uint8Array(rawData.length);
-        for (let i = 0; i < rawData.length; i += 1) {
-            outputArray[i] = rawData.charCodeAt(i);
-        }
-        return outputArray;
-    };
-
     const handlePushSubscribe = async () => {
         if (!pushSupported) {
             toast({ title: 'Push-уведомления не поддерживаются в этом браузере', variant: 'destructive' });
@@ -239,30 +254,9 @@ export default function Settings() {
         }
         setPushSubscribing(true);
         try {
-            const permission = await Notification.requestPermission();
-            if (permission !== 'granted') {
-                toast({ title: 'Разрешите уведомления в браузере', variant: 'destructive' });
-                return;
-            }
-            const reg = await navigator.serviceWorker.ready;
-            const { public_key: vapidKey } = await nexusApi.push.getVapidPublicKey();
-            if (!vapidKey) {
-                toast({ title: 'Push не настроен на сервере', variant: 'destructive' });
-                return;
-            }
-            let subscription = await reg.pushManager.getSubscription();
-            if (!subscription) {
-                subscription = await reg.pushManager.subscribe({
-                    userVisibleOnly: true,
-                    applicationServerKey: urlBase64ToUint8Array(vapidKey),
-                });
-            }
-            const json = subscription.toJSON();
-            await nexusApi.push.subscribe({
-                endpoint: json.endpoint,
-                p256dh: json.keys?.p256dh,
-                auth: json.keys?.auth,
-            });
+            await subscribeToPush();
+            setPushPermission(getNotificationPermission());
+            await refreshPushStatus();
             toast({ title: 'Push-уведомления включены' });
         } catch (err) {
             toast({ title: err.message || 'Не удалось подписаться на push', variant: 'destructive' });
@@ -275,17 +269,23 @@ export default function Settings() {
         if (!pushSupported) return;
         setPushSubscribing(true);
         try {
-            const reg = await navigator.serviceWorker.ready;
-            const subscription = await reg.pushManager.getSubscription();
-            if (subscription) {
-                await nexusApi.push.unsubscribe(subscription.endpoint);
-                await subscription.unsubscribe();
-            }
+            await unsubscribeFromPush();
+            setPushPermission(getNotificationPermission());
+            await refreshPushStatus();
             toast({ title: 'Push-уведомления отключены' });
         } catch (err) {
             toast({ title: err.message || 'Не удалось отписаться', variant: 'destructive' });
         } finally {
             setPushSubscribing(false);
+        }
+    };
+
+    const handlePushTest = async () => {
+        try {
+            await nexusApi.push.sendTest();
+            toast({ title: 'Тестовое push отправлено' });
+        } catch (err) {
+            toast({ title: err.message || 'Не удалось отправить тест', variant: 'destructive' });
         }
     };
 
@@ -399,6 +399,11 @@ export default function Settings() {
                                 <p className="text-xs text-muted-foreground">Браузер не поддерживает push-уведомления</p>
                             ) : (
                                 <>
+                                    <p className="text-xs text-muted-foreground">
+                                        Разрешение браузера: <span className="font-semibold text-foreground">{pushPermission}</span>
+                                        {' · '}Подписка: <span className="font-semibold text-foreground">{pushSubscribed ? 'активна' : 'нет'}</span>
+                                        {!pushServerConfigured && ' · VAPID не настроен на сервере'}
+                                    </p>
                                     <div className="flex flex-wrap gap-2">
                                         <Button
                                             size="sm"
@@ -416,6 +421,15 @@ export default function Settings() {
                                             onClick={handlePushUnsubscribe}
                                         >
                                             Отписаться
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="rounded-xl h-8 text-xs"
+                                            disabled={!pushSubscribed}
+                                            onClick={handlePushTest}
+                                        >
+                                            Тест
                                         </Button>
                                     </div>
                                     {[

@@ -38,6 +38,21 @@ const COMMENT_SORTS = [
     { id: 'old', label: 'Старые' },
 ];
 
+const commentNumericId = (c) => Number(c?.id);
+
+/** Idempotent merge: same comment.id appears at most once (API + WebSocket safe). */
+function mergeCommentList(prev, incoming) {
+    if (!incoming?.id) return { list: prev, added: false };
+    const id = commentNumericId(incoming);
+    if (prev.some((c) => commentNumericId(c) === id)) {
+        return {
+            list: prev.map((c) => (commentNumericId(c) === id ? { ...c, ...incoming } : c)),
+            added: false,
+        };
+    }
+    return { list: [...prev, incoming], added: true };
+}
+
 // ── PollDisplay ──────────────────────────────────────────
 function PollDisplay({ post, currentUser, onVote }) {
     const options = post.poll_options || [];
@@ -338,10 +353,12 @@ export default function PostPage() {
                 } else if (msg.type === 'comment' && msg.data) {
                     const incoming = msg.data;
                     setComments((prev) => {
-                        if (prev.some((c) => c.id === incoming.id)) return prev;
-                        return [...prev, incoming];
+                        const { list, added } = mergeCommentList(prev, incoming);
+                        if (added) {
+                            setPost((p) => (p ? { ...p, comment_count: (p.comment_count || 0) + 1 } : p));
+                        }
+                        return list;
                     });
-                    setPost((prev) => (prev ? { ...prev, comment_count: (prev.comment_count || 0) + 1 } : prev));
                 }
             } catch {
                 // ignore malformed messages
@@ -553,8 +570,13 @@ export default function PostPage() {
     };
 
     const handleCommentAdded = (newCommentData) => {
-        setComments((prev) => [...prev, newCommentData]);
-        setPost((prev) => (prev ? { ...prev, comment_count: (prev.comment_count || 0) + 1 } : prev));
+        setComments((prev) => {
+            const { list, added } = mergeCommentList(prev, newCommentData);
+            if (added) {
+                setPost((p) => (p ? { ...p, comment_count: (p.comment_count || 0) + 1 } : p));
+            }
+            return list;
+        });
     };
 
     const handleCommentUpdated = (commentId, content) => {

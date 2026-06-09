@@ -487,6 +487,9 @@ const nexusApi = {
         async getVapidPublicKey() {
             return request('/push/vapid-public-key');
         },
+        async getStatus() {
+            return request('/push/status');
+        },
         async subscribe({ endpoint, p256dh, auth }) {
             return request('/push/subscribe', {
                 method: 'POST',
@@ -498,6 +501,9 @@ const nexusApi = {
                 method: 'POST',
                 body: JSON.stringify({ endpoint }),
             });
+        },
+        async sendTest() {
+            return request('/push/test', { method: 'POST' });
         },
     },
     featureFlags: {

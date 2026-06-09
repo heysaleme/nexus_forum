@@ -1,0 +1,25 @@
+{
+  "name": "Nexus Forum",
+  "short_name": "Nexus",
+  "description": "Community forum for discussions, posts, and messaging",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f0f12",
+  "theme_color": "#6A5AE0",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "https://api.dicebear.com/7.x/identicon/png?seed=nexus&size=192",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://api.dicebear.com/7.x/identicon/png?seed=nexus&size=512",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
