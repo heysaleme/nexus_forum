@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { Link } from 'react-router-dom';
+import { onRealtimeNotification, logRealtimeNotification } from '@/lib/notificationBus';
 
 const NOTIF_ICONS = {
     reply: { icon: MessageCircle, color: 'bg-blue-100 text-blue-600' },
@@ -35,6 +36,26 @@ export default function Notifications() {
 
     useEffect(() => {
         if (user) loadNotifications();
+    }, [user]);
+
+    useEffect(() => {
+        if (!user) return undefined;
+
+        return onRealtimeNotification((msg) => {
+            if (msg.type === 'notification' && msg.data) {
+                logRealtimeNotification('notifications-page', msg);
+                setNotifications((prev) => {
+                    const id = Number(msg.data.id);
+                    if (prev.some((n) => Number(n.id) === id)) {
+                        return prev;
+                    }
+                    return [msg.data, ...prev];
+                });
+            }
+            if (msg.type === 'unread_count') {
+                // Badge on this page derives from notifications state; markRead handles local state.
+            }
+        });
     }, [user]);
 
     const loadNotifications = async () => {

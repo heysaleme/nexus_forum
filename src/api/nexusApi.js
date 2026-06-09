@@ -503,7 +503,22 @@ const nexusApi = {
             });
         },
         async sendTest() {
-            return request('/push/test', { method: 'POST' });
+            const response = await fetch(`${BASE_URL}/push/test`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+                },
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const err = new Error(data.error || `HTTP error ${response.status}`);
+                err.status = response.status;
+                err.results = data.results;
+                err.delivered = data.delivered;
+                throw err;
+            }
+            return data;
         },
     },
     featureFlags: {

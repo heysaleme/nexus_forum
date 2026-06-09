@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"log/slog"
+
 	"nexus-forum-backend/internal/model"
 
 	"gorm.io/gorm"
@@ -25,10 +27,26 @@ var NotificationDispatcher func(userID uint, notif *model.Notification)
 
 func (r *notificationRepository) Create(notification *model.Notification) error {
 	err := r.db.Create(notification).Error
-	if err == nil && NotificationDispatcher != nil {
-		NotificationDispatcher(notification.UserID, notification)
+	if err != nil {
+		slog.Error("notification: db insert failed",
+			"user_id", notification.UserID,
+			"type", notification.Type,
+			"error", err,
+		)
+		return err
 	}
-	return err
+	slog.Info("notification: created in database",
+		"id", notification.ID,
+		"user_id", notification.UserID,
+		"type", notification.Type,
+		"title", notification.Title,
+	)
+	if NotificationDispatcher != nil {
+		NotificationDispatcher(notification.UserID, notification)
+	} else {
+		slog.Warn("notification: NotificationDispatcher not configured", "id", notification.ID)
+	}
+	return nil
 }
 
 func (r *notificationRepository) GetByUser(userID uint) ([]*model.Notification, error) {

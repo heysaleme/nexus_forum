@@ -202,19 +202,60 @@ func (h *WSHub) BroadcastExcept(roomID uint, payload []byte, exclude *wsClient) 
 }
 
 // SendToUser sends a payload to all global connections of a specific user (room 0).
-func (h *WSHub) SendToUser(userID uint, payload []byte) {
+// Returns the number of clients that accepted the message into their send buffer.
+func (h *WSHub) SendToUser(userID uint, payload []byte) int {
+	msgType := wsPayloadType(payload)
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+
+	delivered := 0
+	dropped := 0
+	clients := 0
+
 	if globalRoom, ok := h.rooms[0]; ok {
 		for client := range globalRoom {
-			if client.userID == userID {
-				select {
-				case client.send <- payload:
-				default:
-				}
+			if client.userID != userID {
+				continue
+			}
+			clients++
+			select {
+			case client.send <- payload:
+				delivered++
+			default:
+				dropped++
+				slog.Warn("ws: send buffer full, dropping message",
+					"user_id", userID,
+					"msg_type", msgType,
+				)
 			}
 		}
 	}
+
+	if clients == 0 {
+		slog.Warn("ws: no global connections for user",
+			"user_id", userID,
+			"msg_type", msgType,
+		)
+	} else {
+		slog.Info("ws: SendToUser",
+			"user_id", userID,
+			"msg_type", msgType,
+			"clients", clients,
+			"delivered", delivered,
+			"dropped", dropped,
+		)
+	}
+	return delivered
+}
+
+func wsPayloadType(payload []byte) string {
+	var envelope struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(payload, &envelope); err == nil && envelope.Type != "" {
+		return envelope.Type
+	}
+	return "unknown"
 }
 
 var upgrader = websocket.Upgrader{
@@ -538,7 +579,20 @@ func (c *wsClient) writePump() {
 				return
 			}
 			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
+				slog.Warn("ws: write failed",
+					"user_id", c.userID,
+					"room_id", c.roomID,
+					"msg_type", wsPayloadType(message),
+					"error", err,
+				)
 				return
+			}
+			if c.roomID == 0 {
+				slog.Debug("ws: frame written to client",
+					"user_id", c.userID,
+					"msg_type", wsPayloadType(message),
+					"bytes", len(message),
+				)
 			}
 
 		case <-ticker.C:

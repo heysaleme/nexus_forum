@@ -1,10 +1,9 @@
 package service
 
 import (
-	"encoding/json"
+	"fmt"
 	"log/slog"
 
-	webpush "github.com/SherClockHolmes/webpush-go"
 	"nexus-forum-backend/internal/model"
 	"nexus-forum-backend/internal/repository"
 )
@@ -13,7 +12,8 @@ type PushService interface {
 	Subscribe(userID uint, endpoint, p256dh, auth string) error
 	Unsubscribe(userID uint, endpoint string) error
 	SendToUser(user *model.User, notifType, title, body string) error
-	SendTest(user *model.User) error
+	SendToUserDetailed(user *model.User, notifType, title, body string) ([]PushDeliveryResult, error)
+	SendTest(user *model.User) ([]PushDeliveryResult, error)
 	HasSubscription(userID uint) (bool, error)
 	PublicKey() string
 }
@@ -32,6 +32,7 @@ func NewPushService(repo repository.PushSubscriptionRepository, publicKey, priva
 func (s *pushService) PublicKey() string { return s.publicKey }
 
 func (s *pushService) Subscribe(userID uint, endpoint, p256dh, auth string) error {
+	slog.Info("push: subscription saved", "user_id", userID, "endpoint_host", endpointHost(endpoint))
 	return s.repo.Save(&model.PushSubscription{UserID: userID, Endpoint: endpoint, P256DH: p256dh, Auth: auth})
 }
 
@@ -69,39 +70,36 @@ func (s *pushService) HasSubscription(userID uint) (bool, error) {
 	return len(subs) > 0, nil
 }
 
-func (s *pushService) SendTest(user *model.User) error {
-	return s.SendToUser(user, "test", "Nexus Forum", "Тестовое push-уведомление")
+func (s *pushService) SendTest(user *model.User) ([]PushDeliveryResult, error) {
+	return s.sendToUserDetailed(user, "test", "Nexus Forum", "Тестовое push-уведомление")
+}
+
+func (s *pushService) SendToUserDetailed(user *model.User, notifType, title, body string) ([]PushDeliveryResult, error) {
+	return s.sendToUserDetailed(user, notifType, title, body)
 }
 
 func (s *pushService) SendToUser(user *model.User, notifType, title, body string) error {
-	if !s.shouldSend(user, notifType) {
-		return nil
-	}
-	subs, err := s.repo.ListByUser(user.ID)
-	if err != nil || len(subs) == 0 {
+	results, err := s.sendToUserDetailed(user, notifType, title, body)
+	if err != nil {
 		return err
 	}
-	payload, _ := json.Marshal(map[string]string{"title": title, "body": body, "type": notifType})
-	for _, sub := range subs {
-		httpResp, err := webpush.SendNotification(payload, &webpush.Subscription{
-			Endpoint: sub.Endpoint,
-			Keys: webpush.Keys{
-				P256dh: sub.P256DH,
-				Auth:   sub.Auth,
-			},
-		}, &webpush.Options{
-			Subscriber:      s.subject,
-			VAPIDPublicKey:  s.publicKey,
-			VAPIDPrivateKey: s.privateKey,
-			TTL:             60,
-		})
-		if err != nil {
-			slog.Warn("web push failed", "user_id", user.ID, "error", err)
-			continue
-		}
-		if httpResp != nil {
-			_ = httpResp.Body.Close()
+	delivered := 0
+	for _, r := range results {
+		if r.Delivered {
+			delivered++
 		}
 	}
+	if delivered == 0 && len(results) > 0 {
+		return fmt.Errorf("push not delivered to any subscription (see server logs)")
+	}
 	return nil
+}
+
+func AnyDelivered(results []PushDeliveryResult) bool {
+	for _, r := range results {
+		if r.Delivered {
+			return true
+		}
+	}
+	return false
 }

@@ -282,10 +282,23 @@ export default function Settings() {
 
     const handlePushTest = async () => {
         try {
-            await nexusApi.push.sendTest();
-            toast({ title: 'Тестовое push отправлено' });
+            const res = await nexusApi.push.sendTest();
+            if (res?.delivered) {
+                toast({ title: 'Push доставлен на endpoint (проверьте macOS/Safari)' });
+            } else {
+                toast({
+                    title: 'Push не доставлен',
+                    description: res?.results?.[0]?.error || res?.results?.[0]?.response_body || 'См. консоль сервера',
+                    variant: 'destructive',
+                });
+            }
         } catch (err) {
-            toast({ title: err.message || 'Не удалось отправить тест', variant: 'destructive' });
+            const detail = err?.results?.map((r) => `${r.http_status_code}: ${r.error || r.response_body}`).join('; ');
+            toast({
+                title: err.message || 'Не удалось отправить тест',
+                description: detail,
+                variant: 'destructive',
+            });
         }
     };
 

@@ -2,6 +2,16 @@ import { nexusApi } from '@/api/nexusApi';
 
 const SW_URL = '/sw.js';
 
+if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data?.type === 'push_received') {
+            console.info('[nexus:push] service worker delivered notification to OS', event.data);
+        } else if (event.data?.type === 'push_error') {
+            console.error('[nexus:push] service worker showNotification failed', event.data);
+        }
+    });
+}
+
 function urlBase64ToUint8Array(base64String) {
     const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
     const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');

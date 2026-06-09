@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"nexus-forum-backend/internal/service"
 )
 
 func (h *Handlers) GetPushPublicKey(c *gin.Context) {
@@ -62,11 +63,21 @@ func (h *Handlers) TestPush(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
 	}
-	if err := h.PushService.SendTest(user); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	results, err := h.PushService.SendTest(user)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "results": results})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	delivered := service.AnyDelivered(results)
+	resp := gin.H{
+		"delivered": delivered,
+		"results":   results,
+	}
+	if !delivered {
+		c.JSON(http.StatusBadGateway, resp)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handlers) UnsubscribePush(c *gin.Context) {

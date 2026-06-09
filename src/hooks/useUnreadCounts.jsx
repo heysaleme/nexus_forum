@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { nexusApi } from '@/api/nexusApi';
+import { emitRealtimeNotification, logRealtimeNotification } from '@/lib/notificationBus';
 
 export default function useUnreadCounts(user) {
     const [counts, setCounts] = useState({ notifications: 0, chats: 0 });
@@ -23,19 +24,20 @@ export default function useUnreadCounts(user) {
                 ]);
 
                 if (!cancelled) {
-                    setCounts({
+                    const next = {
                         notifications: Number(notifRes?.count) || 0,
                         chats: rooms.reduce((sum, room) => sum + (room.unread_count || 0), 0),
-                    });
+                    };
+                    console.info('[nexus:notification] unread count loaded (http)', next);
+                    setCounts(next);
                 }
             } catch (err) {
-                console.error("Failed to load unread counts:", err);
+                console.error('[nexus:notification] failed to load unread counts:', err);
             }
         };
 
         loadCounts();
 
-        // Connect to global WS
         const token = localStorage.getItem('nexus_forum_session_token');
         if (token) {
             const apiBase = nexusApi.BASE_URL;
@@ -52,29 +54,47 @@ export default function useUnreadCounts(user) {
                 wsHost = window.location.host;
             }
             const wsUrl = `${wsProtocol}//${wsHost}/api/ws/global`;
-            
+
             try {
-                ws = new WebSocket(wsUrl, ["Bearer", token]);
-                
+                ws = new WebSocket(wsUrl, ['Bearer', token]);
+
+                ws.onopen = () => {
+                    console.info('[nexus:notification] global ws connected', { wsUrl });
+                };
+
                 ws.onmessage = (event) => {
                     try {
                         const msg = JSON.parse(event.data);
+                        logRealtimeNotification('receive', msg);
+                        emitRealtimeNotification(msg);
+
                         if (msg.type === 'unread_count') {
-                            setCounts(prev => ({
-                                ...prev,
-                                notifications: parseInt(msg.count) || 0
-                            }));
-                        } else if (msg.type === 'notification') {
-                            loadCounts();
+                            setCounts((prev) => {
+                                const next = {
+                                    ...prev,
+                                    notifications: parseInt(msg.count, 10) || 0,
+                                };
+                                console.info('[nexus:notification] unread count updated (ws)', {
+                                    before: prev.notifications,
+                                    after: next.notifications,
+                                });
+                                return next;
+                            });
                         }
                     } catch (err) {
-                        console.error("Failed to parse global ws message:", err);
+                        console.error('[nexus:notification] failed to parse global ws message:', err);
                     }
                 };
 
-                ws.onclose = () => {};
+                ws.onerror = (err) => {
+                    console.error('[nexus:notification] global ws error', err);
+                };
+
+                ws.onclose = (ev) => {
+                    console.warn('[nexus:notification] global ws closed', { code: ev.code, reason: ev.reason });
+                };
             } catch (err) {
-                console.error("Failed to connect to global WS:", err);
+                console.error('[nexus:notification] failed to connect global ws:', err);
             }
         }
 
@@ -93,4 +113,3 @@ export default function useUnreadCounts(user) {
 
     return counts;
 }
-

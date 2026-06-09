@@ -188,6 +188,12 @@ func main() {
 
 	// Register global NotificationDispatcher to trigger real-time WS notifications
 	repository.NotificationDispatcher = func(userID uint, notif *model.Notification) {
+		logger.Info("notification dispatcher: start",
+			"notification_id", notif.ID,
+			"user_id", userID,
+			"type", notif.Type,
+		)
+
 		payload, err := json.Marshal(struct {
 			Type string              `json:"type"`
 			Data *model.Notification `json:"data"`
@@ -195,14 +201,37 @@ func main() {
 			Type: "notification",
 			Data: notif,
 		})
-		if err == nil {
-			wsHub.SendToUser(userID, payload)
+		if err != nil {
+			logger.Error("notification dispatcher: marshal failed", "error", err)
+		} else {
+			sent := wsHub.SendToUser(userID, payload)
+			logger.Info("notification dispatcher: ws notification event",
+				"notification_id", notif.ID,
+				"user_id", userID,
+				"ws_clients_reached", sent,
+			)
 		}
 
 		if recipient, err := userRepo.GetByID(userID); err == nil {
 			karmaRepo.HydrateUser(recipient)
 			email.MaybeNotifyForNotification(mailer, recipient, notif)
-			_ = pushService.SendToUser(recipient, notif.Type, notif.Title, notif.Body)
+			if pushResults, pushErr := pushService.SendToUserDetailed(recipient, notif.Type, notif.Title, notif.Body); pushErr != nil {
+				logger.Warn("notification dispatcher: push skipped or failed",
+					"user_id", userID,
+					"type", notif.Type,
+					"error", pushErr,
+				)
+			} else {
+				for _, pr := range pushResults {
+					logger.Info("notification dispatcher: push attempt",
+						"user_id", userID,
+						"endpoint_host", pr.Endpoint,
+						"http_status", pr.HTTPStatusCode,
+						"delivered", pr.Delivered,
+						"error", pr.Error,
+					)
+				}
+			}
 		}
 		mqPublisher.PublishNotification(queue.NotificationEvent{
 			UserID: userID,
@@ -220,8 +249,15 @@ func main() {
 				Type:  "unread_count",
 				Count: count,
 			})
-			if err == nil {
-				wsHub.SendToUser(userID, countPayload)
+			if err != nil {
+				logger.Error("notification dispatcher: unread count marshal failed", "error", err)
+			} else {
+				sent := wsHub.SendToUser(userID, countPayload)
+				logger.Info("notification dispatcher: ws unread_count",
+					"user_id", userID,
+					"count", count,
+					"ws_clients_reached", sent,
+				)
 			}
 		}
 	}
