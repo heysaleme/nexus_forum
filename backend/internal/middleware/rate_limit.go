@@ -1,9 +1,13 @@
 package middleware
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
+
+	"nexus-forum-backend/internal/cache"
 
 	"github.com/gin-gonic/gin"
 )
@@ -13,18 +17,29 @@ type rateLimiter struct {
 	buckets map[string][]time.Time
 	limit   int
 	window  time.Duration
+	redis   *cache.Client
 }
 
 // NewRateLimiter returns middleware that limits requests per IP per route.
-func NewRateLimiter(limit int, window time.Duration) gin.HandlerFunc {
+// Uses Redis when available, otherwise in-memory sliding window.
+func NewRateLimiter(limit int, window time.Duration, redis *cache.Client) gin.HandlerFunc {
 	rl := &rateLimiter{
 		buckets: make(map[string][]time.Time),
 		limit:   limit,
 		window:  window,
+		redis:   redis,
 	}
 	return func(c *gin.Context) {
-		key := c.ClientIP() + ":" + c.FullPath()
-		if !rl.allow(key) {
+		key := "rl:" + c.ClientIP() + ":" + c.FullPath()
+		if rl.redis != nil && rl.redis.Enabled() {
+			if !rl.redis.AllowRate(context.Background(), key, limit, window) {
+				c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
+				return
+			}
+			c.Next()
+			return
+		}
+		if !rl.allowMemory(key) {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
 			return
 		}
@@ -32,7 +47,7 @@ func NewRateLimiter(limit int, window time.Duration) gin.HandlerFunc {
 	}
 }
 
-func (rl *rateLimiter) allow(key string) bool {
+func (rl *rateLimiter) allowMemory(key string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
@@ -54,4 +69,9 @@ func (rl *rateLimiter) allow(key string) bool {
 
 	rl.buckets[key] = append(valid, now)
 	return true
+}
+
+// FeedCacheKey builds a redis cache key for feed responses.
+func FeedCacheKey(sort string, limit int, viewerID uint) string {
+	return fmt.Sprintf("feed:%s:%d:%d", sort, limit, viewerID)
 }

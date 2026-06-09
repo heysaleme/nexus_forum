@@ -47,6 +47,12 @@ type Config struct {
 	SMTPUsername string
 	SMTPPassword string
 	SMTPFrom     string
+
+	RedisURL    string
+	RabbitMQURL string
+	VAPIDPublic string
+	VAPIDPrivate string
+	VAPIDSubject string
 }
 
 func LoadConfig() (*Config, error) {
@@ -65,7 +71,7 @@ func LoadConfig() (*Config, error) {
 
 	dbType := os.Getenv("DB_TYPE")
 	if dbType == "" {
-		dbType = "sqlite" // Default to sqlite for quick local start, but we can set DB_TYPE=postgres
+		dbType = "postgres"
 	}
 
 	databaseURL := os.Getenv("DATABASE_URL")
@@ -111,6 +117,11 @@ func LoadConfig() (*Config, error) {
 		SMTPUsername:       os.Getenv("SMTP_USERNAME"),
 		SMTPPassword:       os.Getenv("SMTP_PASSWORD"),
 		SMTPFrom:           os.Getenv("SMTP_FROM"),
+		RedisURL:           os.Getenv("REDIS_URL"),
+		RabbitMQURL:        os.Getenv("RABBITMQ_URL"),
+		VAPIDPublic:        os.Getenv("VAPID_PUBLIC_KEY"),
+		VAPIDPrivate:       os.Getenv("VAPID_PRIVATE_KEY"),
+		VAPIDSubject:       envOr("VAPID_SUBJECT", frontendURL),
 	}, nil
 }
 

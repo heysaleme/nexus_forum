@@ -132,13 +132,6 @@ func (s *commentService) Create(comment *model.Comment) error {
 		})
 	}
 
-	// Add XP
-	if author != nil {
-		author.XP += 8
-		recalculateLevel(author)
-		_ = s.userRepo.Update(author)
-	}
-
 	return nil
 }
 
@@ -211,25 +204,6 @@ func (s *commentService) Delete(userID, commentID uint) error {
 		comment.Content = "[удалено модератором]"
 	} else {
 		comment.Content = "[удалено]"
-	}
-
-	// Deduct XP from original comment author
-	if comment.AuthorID != 0 && comment.AuthorID != userID {
-		// Only deduct if someone else deleted it (mod/admin action)
-		author, err := s.userRepo.GetByID(comment.AuthorID)
-		if err == nil && author != nil {
-			author.XP = maxZero(author.XP - 8)
-			recalculateLevel(author)
-			_ = s.userRepo.Update(author)
-		}
-	} else if comment.AuthorID == userID {
-		// Self-deletion also loses XP
-		userObj, err := s.userRepo.GetByID(userID)
-		if err == nil && userObj != nil {
-			userObj.XP = maxZero(userObj.XP - 8)
-			recalculateLevel(userObj)
-			_ = s.userRepo.Update(userObj)
-		}
 	}
 
 	return s.repo.Update(comment)

@@ -14,9 +14,11 @@ type User struct {
 	Bio            string    `json:"bio"`
 	Title          string    `json:"title"`
 	ProfileTheme   string    `gorm:"default:default" json:"profile_theme"`
-	Level          int       `gorm:"default:1" json:"level"`
-	XP             int       `gorm:"default:0" json:"xp"`
 	FollowersCount int       `gorm:"default:0" json:"followers_count"`
+	// Karma (computed from vote scores, not stored)
+	PostKarma      int       `gorm:"-" json:"post_karma"`
+	CommentKarma   int       `gorm:"-" json:"comment_karma"`
+	TotalKarma     int       `gorm:"-" json:"total_karma"`
 	FollowingCount int       `gorm:"default:0" json:"following_count"`
 	Role           string    `gorm:"default:user" json:"role"` // "admin", "moderator", "user"
 	AllowDMs       bool      `gorm:"default:true" json:"allow_dms"`
@@ -34,6 +36,12 @@ type User struct {
 	EmailNotifyFollow     bool `gorm:"default:true" json:"email_notify_follow"`
 	EmailNotifyModeration bool `gorm:"default:true" json:"email_notify_moderation"`
 	EmailNotifyReport     bool `gorm:"default:true" json:"email_notify_report"`
+	PushNotifyComments    bool `gorm:"default:true" json:"push_notify_comments"`
+	PushNotifyReplies     bool `gorm:"default:true" json:"push_notify_replies"`
+	PushNotifyMentions    bool `gorm:"default:true" json:"push_notify_mentions"`
+	PushNotifyFollowers   bool `gorm:"default:true" json:"push_notify_followers"`
+	PushNotifyMessages    bool `gorm:"default:true" json:"push_notify_messages"`
+	PushNotifyModeration  bool `gorm:"default:true" json:"push_notify_moderation"`
 	CreatedAt      time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"created_date"`
 }
 

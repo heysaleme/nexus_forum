@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowUp, ArrowDown, MessageCircle, Share2, Bookmark, Eye, Trash2, Pin, Flag } from 'lucide-react';
+import { ArrowUp, ArrowDown, MessageCircle, Share2, Bookmark, Eye, Trash2, Pin, Flag, Repeat2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { nexusApi } from '@/api/nexusApi';
 import { useState, useEffect } from 'react';
@@ -138,6 +138,18 @@ export default function PostCard({ post, currentUser: propUser, onVote, onDelete
         >
             {/* Header */}
             <div className="flex items-center gap-2 px-5 pt-4 pb-2">
+                {post.is_crosspost && post.original_post_id && (
+                    <Link
+                        to={`/post/${post.original_post_id}`}
+                        onClick={e => e.stopPropagation()}
+                        className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground hover:text-primary"
+                    >
+                        <Repeat2 className="w-3 h-3" />
+                        <span className="truncate max-w-[140px] sm:max-w-none">
+                            {post.original_community_name ? `из ${post.original_community_name}` : 'кросспост'}
+                        </span>
+                    </Link>
+                )}
                 {post.is_pinned && (
                     <Badge className="bg-green-600 text-white gap-1 py-0.5 rounded text-[10px] uppercase font-black hover:bg-green-600">
                         <Pin className="w-2.5 h-2.5 fill-white" />
@@ -171,6 +183,11 @@ export default function PostCard({ post, currentUser: propUser, onVote, onDelete
             {/* Title + content — both clickable via parent div */}
             <h3 className="px-5 pt-1 text-[14px] font-bold text-foreground leading-snug line-clamp-2 mb-2 flex items-center gap-1.5 flex-wrap">
                 {post.title}
+                {post.is_crosspost && post.original_post_id && (
+                    <Badge className="text-[9px] bg-blue-100 text-blue-700 border-0 gap-0.5 rounded font-bold">
+                        <Repeat2 className="w-2.5 h-2.5" />Кросспост
+                    </Badge>
+                )}
                 {post.is_nsfw && <Badge variant="destructive" className="text-[9px] uppercase px-1.5 py-0 rounded font-black">NSFW</Badge>}
                 {post.is_spoiler && <Badge className="text-[9px] bg-yellow-600 text-white uppercase px-1.5 py-0 rounded font-black hover:bg-yellow-600">SPOILER</Badge>}
             </h3>

@@ -29,9 +29,9 @@ func ResetMinimalDemo(db *gorm.DB) error {
 	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
 	passStr := string(hashedPassword)
 
-	admin := model.User{Username: "amira", Email: "amira@example.com", PasswordHash: passStr, Bio: "Администратор Nexus Forum.", Role: "admin", Level: 5, XP: 430, ProfileTheme: "sunset", AllowDMs: true}
-	mod := model.User{Username: "moduser", Email: "moderator@example.com", PasswordHash: passStr, Bio: "Модератор платформы.", Role: "moderator", Level: 4, XP: 320, ProfileTheme: "forest", AllowDMs: true}
-	user := model.User{Username: "kaizer", Email: "kai@example.com", PasswordHash: passStr, Bio: "Обычный пользователь для демо.", Role: "user", Level: 2, XP: 80, ProfileTheme: "ocean", AllowDMs: true}
+	admin := model.User{Username: "amira", Email: "amira@example.com", PasswordHash: passStr, Bio: "Администратор Nexus Forum.", Role: "admin", ProfileTheme: "sunset", AllowDMs: true}
+	mod := model.User{Username: "moduser", Email: "moderator@example.com", PasswordHash: passStr, Bio: "Модератор платформы.", Role: "moderator", ProfileTheme: "forest", AllowDMs: true}
+	user := model.User{Username: "kaizer", Email: "kai@example.com", PasswordHash: passStr, Bio: "Обычный пользователь для демо.", Role: "user", ProfileTheme: "ocean", AllowDMs: true}
 	if err := db.Create(&admin).Error; err != nil {
 		return err
 	}

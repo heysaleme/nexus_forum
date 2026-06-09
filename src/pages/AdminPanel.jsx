@@ -8,7 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Shield, Users, AlertTriangle, BarChart2, Search, Ban, Eye, CheckCircle, XCircle, Trash2, EyeOff } from 'lucide-react';
+import { Shield, Users, AlertTriangle, BarChart2, Search, Ban, Eye, CheckCircle, XCircle, Trash2, EyeOff, Flag, ToggleLeft } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { motion } from 'framer-motion';
 import { useToast } from '@/components/ui/use-toast';
@@ -27,6 +28,8 @@ export default function AdminPanel() {
     const [engagement, setEngagement] = useState(null);
     const [loading, setLoading] = useState(true);
     const [userSearch, setUserSearch] = useState('');
+    const [featureFlags, setFeatureFlags] = useState([]);
+    const [flagsLoading, setFlagsLoading] = useState(false);
 
     useEffect(() => {
         if (!user || user.role !== 'admin') { navigate('/'); return; }
@@ -103,6 +106,31 @@ export default function AdminPanel() {
         await nexusApi.entities.Post.update(postId, { status: 'removed' });
         toast({ title: '🗑️ Публикация удалена' });
         loadData();
+    };
+
+    const loadFeatureFlags = async () => {
+        setFlagsLoading(true);
+        try {
+            const flags = await nexusApi.featureFlags.list();
+            setFeatureFlags(Array.isArray(flags) ? flags : []);
+        } catch (err) {
+            toast({ title: err.message || 'Не удалось загрузить флаги', variant: 'destructive' });
+        } finally {
+            setFlagsLoading(false);
+        }
+    };
+
+    const handleToggleFlag = async (flag) => {
+        try {
+            const updated = await nexusApi.featureFlags.update(flag.key, {
+                enabled: !flag.enabled,
+                description: flag.description || '',
+            });
+            setFeatureFlags((prev) => prev.map((f) => (f.key === flag.key ? updated : f)));
+            toast({ title: `Флаг «${flag.key}» ${updated.enabled ? 'включён' : 'выключен'}` });
+        } catch (err) {
+            toast({ title: err.message || 'Не удалось обновить флаг', variant: 'destructive' });
+        }
     };
 
     const handleDeleteCommunity = async (commId) => {
@@ -240,6 +268,9 @@ export default function AdminPanel() {
                         Жалобы
                         {stats.pendingReports > 0 && <span className="absolute -top-1 -right-1 w-3 h-3 bg-destructive rounded-full text-[8px] text-white flex items-center justify-center">{stats.pendingReports}</span>}
                     </TabsTrigger>
+                    <TabsTrigger value="flags" className="rounded-lg text-xs gap-1.5 flex-shrink-0" onClick={() => { if (featureFlags.length === 0) loadFeatureFlags(); }}>
+                        <ToggleLeft className="w-3.5 h-3.5" />Флаги
+                    </TabsTrigger>
                 </TabsList>
 
                 {/* Statistics */}
@@ -354,6 +385,10 @@ export default function AdminPanel() {
                                             {u.is_shadow_banned && <Badge className="bg-orange-100 text-orange-700 text-[9px] border-0">Теневой бан</Badge>}
                                         </div>
                                         <p className="text-xs text-muted-foreground">{u.email}</p>
+                                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                                            карма: {u.total_karma ?? ((u.post_karma || 0) + (u.comment_karma || 0))}
+                                            {' · '}посты: {u.post_karma ?? 0} · коммент.: {u.comment_karma ?? 0}
+                                        </p>
                                     </div>
                                     <div className="flex items-center gap-2 flex-shrink-0">
                                         <Select value={u.role || 'user'} onValueChange={role => handleChangeRole(u, role)}>
@@ -398,6 +433,33 @@ export default function AdminPanel() {
                                 <Button variant="ghost" size="sm" onClick={() => handleDeleteCommunity(c.id)} className="h-7 w-7 p-0 rounded-lg text-destructive hover:bg-destructive/10">
                                     <Trash2 className="w-4 h-4" />
                                 </Button>
+                            </div>
+                        ))}
+                    </div>
+                </TabsContent>
+
+                {/* Feature flags */}
+                <TabsContent value="flags">
+                    <div className="nexus-card divide-y divide-border/50">
+                        {flagsLoading ? (
+                            <div className="p-8"><LoadingSpinner size="sm" className="mx-auto" /></div>
+                        ) : featureFlags.length === 0 ? (
+                            <div className="p-8 text-center text-sm text-muted-foreground">
+                                <Flag className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                                Нет флагов функций
+                            </div>
+                        ) : featureFlags.map((flag) => (
+                            <div key={flag.key} className="flex items-center gap-3 p-4">
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-bold font-mono">{flag.key}</p>
+                                    {flag.description && (
+                                        <p className="text-xs text-muted-foreground mt-0.5">{flag.description}</p>
+                                    )}
+                                </div>
+                                <Switch
+                                    checked={!!flag.enabled}
+                                    onCheckedChange={() => handleToggleFlag(flag)}
+                                />
                             </div>
                         ))}
                     </div>

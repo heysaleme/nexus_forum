@@ -46,6 +46,7 @@ type wsClient struct {
 type WSHub struct {
 	mu          sync.RWMutex
 	rooms       map[uint]map[*wsClient]bool // roomID -> set of clients
+	postRooms   map[uint]map[*postWSClient]bool
 	onlineUsers map[uint]int                // userID -> connection count
 	join        chan *wsClient
 	leave       chan *wsClient

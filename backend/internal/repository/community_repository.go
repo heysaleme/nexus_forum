@@ -19,8 +19,10 @@ type CommunityRepository interface {
 	AddMember(member *model.CommunityMember) error
 	RemoveMember(userID, communityID uint) error
 	GetMember(userID, communityID uint) (*model.CommunityMember, error)
+	UpdateMemberRole(userID, communityID uint, role string) error
 	GetMemberships(userID uint) ([]*model.CommunityMember, error)
 	GetMembers(communityID uint) ([]*model.CommunityMember, error)
+	ListModerators(communityID uint) ([]*model.CommunityMember, error)
 	Delete(id uint) error
 }
 
@@ -93,6 +95,18 @@ func (r *communityRepository) GetMember(userID, communityID uint) (*model.Commun
 	var member model.CommunityMember
 	err := r.db.Where("user_id = ? AND community_id = ?", userID, communityID).First(&member).Error
 	return &member, err
+}
+
+func (r *communityRepository) UpdateMemberRole(userID, communityID uint, role string) error {
+	return r.db.Model(&model.CommunityMember{}).
+		Where("user_id = ? AND community_id = ?", userID, communityID).
+		Update("role", role).Error
+}
+
+func (r *communityRepository) ListModerators(communityID uint) ([]*model.CommunityMember, error) {
+	var members []*model.CommunityMember
+	err := r.db.Where("community_id = ? AND role IN ?", communityID, []string{"moderator", "owner"}).Find(&members).Error
+	return members, err
 }
 
 func (r *communityRepository) GetMemberships(userID uint) ([]*model.CommunityMember, error) {

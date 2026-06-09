@@ -174,8 +174,6 @@ func (s *authService) createUserFromVerification(row *model.EmailVerification) (
 		PasswordHash:  row.PasswordHash,
 		Role:          "user",
 		ProfileTheme:  "default",
-		Level:         1,
-		XP:            0,
 		AllowDMs:      true,
 		EmailVerified: true,
 	}
@@ -437,8 +435,6 @@ func (s *authService) FindOrCreateOAuthUser(provider, sub, email, name, avatarUR
 		AvatarURL:     avatarURL,
 		Role:          "user",
 		ProfileTheme:  "default",
-		Level:         1,
-		XP:            0,
 		AllowDMs:      true,
 		EmailVerified: email != "",
 		OAuthProvider: provider,

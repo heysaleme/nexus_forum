@@ -95,7 +95,7 @@ export default function Sidebar({ user }) {
                         />
                         <div className="flex-1 min-w-0">
                             <p className="text-sm font-semibold truncate">{user.full_name || user.username}</p>
-                            <p className="text-xs text-muted-foreground">Ур. {user.level || 1} · {user.xp || 0} XP</p>
+                            <p className="text-xs text-muted-foreground">{(user.total_karma ?? ((user.post_karma || 0) + (user.comment_karma || 0)))} кармы</p>
                         </div>
                     </div>
                 </Link>

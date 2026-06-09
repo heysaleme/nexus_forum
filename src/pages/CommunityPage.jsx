@@ -22,9 +22,10 @@ export default function CommunityPage() {
     const [members, setMembers] = useState([]);
     const [isJoined, setIsJoined] = useState(false);
     const [memberRole, setMemberRole] = useState(null);
+    const [moderators, setModerators] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => { loadCommunity(); }, [id]);
+    useEffect(() => { loadCommunity(); }, [id, user]);
 
     const loadCommunity = async () => {
         setLoading(true);
@@ -40,8 +41,52 @@ export default function CommunityPage() {
             const myMembership = membersData.find(m => m.user_id === user.id);
             setIsJoined(!!myMembership);
             setMemberRole(myMembership?.role || null);
+            const canManageMods = myMembership?.role === 'owner' || myMembership?.role === 'moderator';
+            if (canManageMods) {
+                try {
+                    const mods = await nexusApi.entities.Community.listModerators(id);
+                    setModerators(Array.isArray(mods) ? mods : []);
+                } catch {
+                    setModerators([]);
+                }
+            } else {
+                setModerators([]);
+            }
+        } else {
+            setModerators([]);
         }
         setLoading(false);
+    };
+
+    const canManageMods = memberRole === 'owner' || memberRole === 'moderator';
+
+    const enrichModerator = (mod) => {
+        const member = members.find((m) => m.user_id === mod.user_id);
+        return {
+            ...mod,
+            username: member?.username || `user_${mod.user_id}`,
+            avatar_url: member?.avatar_url,
+        };
+    };
+
+    const handlePromoteModerator = async (userId) => {
+        try {
+            await nexusApi.entities.Community.promoteModerator(id, userId);
+            toast({ title: 'Пользователь назначен модератором' });
+            loadCommunity();
+        } catch (err) {
+            toast({ title: err.message || 'Не удалось назначить модератора', variant: 'destructive' });
+        }
+    };
+
+    const handleDemoteModerator = async (userId) => {
+        try {
+            await nexusApi.entities.Community.demoteModerator(id, userId);
+            toast({ title: 'Модератор снят с должности' });
+            loadCommunity();
+        } catch (err) {
+            toast({ title: err.message || 'Не удалось снять модератора', variant: 'destructive' });
+        }
     };
 
     const handleJoin = async () => {
@@ -207,20 +252,63 @@ export default function CommunityPage() {
                             </TabsContent>
 
                             <TabsContent value="members">
+                                {canManageMods && moderators.length > 0 && (
+                                    <div className="mb-4">
+                                        <h3 className="text-xs font-bold text-muted-foreground mb-2 flex items-center gap-1.5">
+                                            <Shield className="w-3.5 h-3.5" />Модераторы
+                                        </h3>
+                                        <div className="bg-card border border-border/40 overflow-hidden divide-y divide-border/30 rounded-xl">
+                                            {moderators.map((mod) => {
+                                                const enriched = enrichModerator(mod);
+                                                return (
+                                                    <div key={mod.id} className="p-3 flex items-center gap-3">
+                                                        <img src={enriched.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${enriched.username}`} className="w-9 h-9 rounded-full object-cover" alt="" />
+                                                        <div className="flex-1 min-w-0">
+                                                            <Link to={profilePath(mod.user_id, user?.id)} className="text-sm font-semibold hover:text-primary">
+                                                                {enriched.username}
+                                                            </Link>
+                                                            <p className="text-xs text-muted-foreground capitalize">{mod.role}</p>
+                                                        </div>
+                                                        {mod.role === 'moderator' && canManageMods && (
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="h-7 text-xs rounded-lg shrink-0"
+                                                                onClick={() => handleDemoteModerator(mod.user_id)}
+                                                            >
+                                                                Снять
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
                                 <div className="bg-card border border-border/40 overflow-hidden divide-y divide-border/30">
                                     {members.map(m => (
-                                        <Link key={m.id} to={profilePath(m.user_id, user?.id)}>
-                                            <div className="p-3 flex items-center gap-3 hover:bg-muted/30 transition-colors">
+                                        <div key={m.id} className="p-3 flex items-center gap-3 hover:bg-muted/30 transition-colors">
+                                            <Link to={profilePath(m.user_id, user?.id)} className="flex items-center gap-3 flex-1 min-w-0">
                                                 <img src={m.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${m.username || m.user_id}`} className="w-9 h-9 rounded-full object-cover" alt="" />
-                                                <div className="flex-1">
+                                                <div className="flex-1 min-w-0">
                                                     <p className="text-sm font-semibold">{m.username || `user_${m.user_id}`}</p>
                                                     <p className="text-xs text-muted-foreground capitalize">{m.role}</p>
                                                 </div>
-                                                {(m.role === 'moderator' || m.role === 'owner') && (
-                                                    <Badge className="bg-orange-100 text-orange-700 text-xs border-0">{m.role === 'owner' ? '👑 Владелец' : '🛡️ Мод'}</Badge>
-                                                )}
-                                            </div>
-                                        </Link>
+                                            </Link>
+                                            {(m.role === 'moderator' || m.role === 'owner') && (
+                                                <Badge className="bg-orange-100 text-orange-700 text-xs border-0 shrink-0">{m.role === 'owner' ? '👑 Владелец' : '🛡️ Мод'}</Badge>
+                                            )}
+                                            {canManageMods && m.role === 'member' && (
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="h-7 text-xs rounded-lg shrink-0"
+                                                    onClick={() => handlePromoteModerator(m.user_id)}
+                                                >
+                                                    Мод
+                                                </Button>
+                                            )}
+                                        </div>
                                     ))}
                                 </div>
                             </TabsContent>

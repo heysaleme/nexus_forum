@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"nexus-forum-backend/internal/repository"
 	"nexus-forum-backend/internal/service"
 )
 
@@ -20,6 +21,10 @@ type Handlers struct {
 	ModService      service.ModerationService
 	Analytics       service.AnalyticsService
 	UploadService   service.UploadService
+	PushService     service.PushService
+	FeatureFlags    service.FeatureFlagService
+	SearchQueries   repository.SearchQueryRepository
+	KarmaRepo       repository.KarmaRepository
 	WSHub           *WSHub
 	TurnstileSecret string // empty = Turnstile disabled
 	SMTPConfigured  bool
@@ -37,6 +42,10 @@ func NewHandlers(
 	mod service.ModerationService,
 	analytics service.AnalyticsService,
 	upload service.UploadService,
+	push service.PushService,
+	flags service.FeatureFlagService,
+	searchQueries repository.SearchQueryRepository,
+	karma repository.KarmaRepository,
 	wsHub *WSHub,
 	turnstileSecret string,
 	smtpConfigured bool,
@@ -53,6 +62,10 @@ func NewHandlers(
 		ModService:      mod,
 		Analytics:       analytics,
 		UploadService:   upload,
+		PushService:     push,
+		FeatureFlags:    flags,
+		SearchQueries:   searchQueries,
+		KarmaRepo:       karma,
 		WSHub:           wsHub,
 		TurnstileSecret: turnstileSecret,
 		SMTPConfigured:  smtpConfigured,

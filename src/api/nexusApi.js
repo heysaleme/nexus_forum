@@ -478,7 +478,41 @@ const nexusApi = {
                 data.posts = data.posts.map(parsePost);
             }
             return data;
-        }
+        },
+        async trending(limit = 10) {
+            return request(`/search/trending?limit=${limit}`);
+        },
+    },
+    push: {
+        async getVapidPublicKey() {
+            return request('/push/vapid-public-key');
+        },
+        async subscribe({ endpoint, p256dh, auth }) {
+            return request('/push/subscribe', {
+                method: 'POST',
+                body: JSON.stringify({ endpoint, p256dh, auth }),
+            });
+        },
+        async unsubscribe(endpoint) {
+            return request('/push/unsubscribe', {
+                method: 'POST',
+                body: JSON.stringify({ endpoint }),
+            });
+        },
+    },
+    featureFlags: {
+        async list() {
+            return request('/admin/feature-flags');
+        },
+        async update(key, { enabled, description = '' }) {
+            return request(`/admin/feature-flags/${encodeURIComponent(key)}`, {
+                method: 'PUT',
+                body: JSON.stringify({ enabled, description }),
+            });
+        },
+        async getPublic() {
+            return request('/feature-flags');
+        },
     },
     integrations: {
         Core: {
@@ -514,7 +548,18 @@ const nexusApi = {
                 return request(`/users/${id}/stats`);
             },
         },
-        Community: createEntityApi('Community', '/communities'),
+        Community: {
+            ...createEntityApi('Community', '/communities'),
+            async listModerators(communityId) {
+                return request(`/communities/${communityId}/moderators`);
+            },
+            async promoteModerator(communityId, userId) {
+                return request(`/communities/${communityId}/moderators/${userId}/promote`, { method: 'POST' });
+            },
+            async demoteModerator(communityId, userId) {
+                return request(`/communities/${communityId}/moderators/${userId}/demote`, { method: 'POST' });
+            },
+        },
         CommunityMember: {
             ...createEntityApi('CommunityMember', '/communities'),
             async filter(filter = {}) {
@@ -587,7 +632,16 @@ const nexusApi = {
                     posts = posts.filter((p) => p.status === filter.status);
                 }
                 return posts;
-            }
+            },
+            async crosspost({ original_post_id, target_community_id, title }) {
+                const record = await request('/posts/crosspost', {
+                    method: 'POST',
+                    body: JSON.stringify({ original_post_id, target_community_id, title }),
+                });
+                const resRecord = parsePost(record);
+                notifySubscribers('Post', { type: 'create', data: resRecord });
+                return resRecord;
+            },
         },
         Comment: {
             ...createEntityApi('Comment', '/comments'),

@@ -27,6 +27,7 @@ type PostService interface {
 	GetVotesForPosts(userID uint, postIDs []uint) map[uint]int
 	IncrementViews(postID uint) error
 	Search(query string, limit int, viewerID uint) ([]*model.Post, error)
+	CreateCrosspost(authorID, originalPostID, targetCommunityID uint, title string) (*model.Post, error)
 }
 
 type postService struct {
@@ -72,13 +73,6 @@ func (s *postService) Create(post *model.Post) error {
 		_ = s.commRepo.Update(comm)
 	}
 
-	author, _ := s.userRepo.GetByID(post.AuthorID)
-	if author != nil {
-		author.XP += 20
-		recalculateLevel(author)
-		_ = s.userRepo.Update(author)
-	}
-
 	return nil
 }
 
@@ -106,16 +100,6 @@ func (s *postService) Delete(userID, postID uint) error {
 	}
 	if post.AuthorID != userID && user.Role != "admin" && user.Role != "moderator" {
 		return errors.New("unauthorized to delete this post")
-	}
-
-	// Deduct XP from original author
-	if post.AuthorID != 0 {
-		author, err := s.userRepo.GetByID(post.AuthorID)
-		if err == nil && author != nil {
-			author.XP = maxZero(author.XP - 20)
-			recalculateLevel(author)
-			_ = s.userRepo.Update(author)
-		}
 	}
 
 	// Decrement community post count
@@ -329,4 +313,43 @@ func (s *postService) VotePoll(userID, postID uint, optionIndex int) error {
 	post.PollVotes = string(votesJSON)
 
 	return s.repo.Update(post)
+}
+
+func (s *postService) CreateCrosspost(authorID, originalPostID, targetCommunityID uint, title string) (*model.Post, error) {
+	original, err := s.repo.GetByID(originalPostID)
+	if err != nil {
+		return nil, errors.New("original post not found")
+	}
+	if original.Status != "published" {
+		return nil, errors.New("only published posts can be crossposted")
+	}
+	if _, err = s.commRepo.GetMember(authorID, targetCommunityID); err != nil {
+		return nil, errors.New("must be a member of target community")
+	}
+	if title == "" {
+		title = original.Title
+	}
+	origID := originalPostID
+	post := &model.Post{
+		CommunityID:    targetCommunityID,
+		AuthorID:       authorID,
+		Title:          title,
+		Content:        original.Content,
+		Type:           original.Type,
+		Status:         "published",
+		MediaUrls:      original.MediaUrls,
+		LinkUrl:        original.LinkUrl,
+		Tags:           original.Tags,
+		PollOptions:    original.PollOptions,
+		OriginalPostID: &origID,
+		IsCrosspost:    true,
+	}
+	if err := s.repo.Create(post); err != nil {
+		return nil, err
+	}
+	if comm, _ := s.commRepo.GetByID(targetCommunityID); comm != nil {
+		comm.PostCount++
+		_ = s.commRepo.Update(comm)
+	}
+	return s.repo.GetByID(post.ID)
 }

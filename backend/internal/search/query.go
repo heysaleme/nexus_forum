@@ -15,6 +15,9 @@ func PostIDsMatching(db *gorm.DB, query string, limit int) ([]uint, error) {
 	if limit <= 0 {
 		limit = 30
 	}
+	if PostgresFTSEnabled(db) {
+		return PostgresPostIDs(db, query, limit)
+	}
 
 	terms := Tokenize(query)
 	if len(terms) == 0 {

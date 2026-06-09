@@ -32,6 +32,7 @@ type userService struct {
 	followRepo repository.FollowRepository
 	notifRepo  repository.NotificationRepository
 	modRepo    repository.ModerationRepository
+	karmaRepo  repository.KarmaRepository
 }
 
 func NewUserService(
@@ -39,18 +40,24 @@ func NewUserService(
 	followRepo repository.FollowRepository,
 	notifRepo repository.NotificationRepository,
 	modRepo repository.ModerationRepository,
+	karmaRepo repository.KarmaRepository,
 ) UserService {
 	return &userService{
 		repo:       repo,
 		followRepo: followRepo,
 		notifRepo:  notifRepo,
 		modRepo:    modRepo,
+		karmaRepo:  karmaRepo,
 	}
 }
 
 func (s *userService) GetByID(id uint) (*model.User, error) {
 	_ = s.repo.SyncFollowCounts(id)
-	return s.repo.GetByID(id)
+	user, err := s.repo.GetByID(id)
+	if err == nil && s.karmaRepo != nil {
+		s.karmaRepo.HydrateUser(user)
+	}
+	return user, err
 }
 
 func (s *userService) GetProfileStats(userID uint) (*repository.ProfileStats, error) {
@@ -66,7 +73,10 @@ func (s *userService) GetAchievements(userID uint) ([]Achievement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return computeAchievements(userID, stats, stats.CommunitiesOwned, user.Level, user.XP), nil
+	if s.karmaRepo != nil {
+		s.karmaRepo.HydrateUser(user)
+	}
+	return computeAchievements(userID, stats, stats.CommunitiesOwned, user.TotalKarma), nil
 }
 
 func (s *userService) GetByIDs(ids []uint) (map[uint]*model.User, error) {
@@ -145,15 +155,11 @@ func (s *userService) Follow(followerID, followingID uint) error {
 	followerUser, _ := s.repo.GetByID(followerID)
 
 	if status == "accepted" {
-		// Update stats & add XP
 		if followerUser != nil {
 			followerUser.FollowingCount++
-			followerUser.XP += 4
-			recalculateLevel(followerUser)
 			_ = s.repo.Update(followerUser)
 		}
 		followingUser.FollowersCount++
-		recalculateLevel(followingUser)
 		_ = s.repo.Update(followingUser)
 	} else {
 		// Send pending notification
@@ -299,19 +305,15 @@ func (s *userService) AcceptFollowRequest(followerID, followingID uint) error {
 		return err
 	}
 
-	// Update stats & add XP
 	follower, _ := s.repo.GetByID(followerID)
 	if follower != nil {
 		follower.FollowingCount++
-		follower.XP += 4
-		recalculateLevel(follower)
 		_ = s.repo.Update(follower)
 	}
 
 	following, _ := s.repo.GetByID(followingID)
 	if following != nil {
 		following.FollowersCount++
-		recalculateLevel(following)
 		_ = s.repo.Update(following)
 	}
 

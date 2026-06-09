@@ -25,6 +25,8 @@ func (h *Handlers) Search(c *gin.Context) {
 		return
 	}
 
+	_ = h.SearchQueries.Record(query)
+
 	posts, err := h.PostService.Search(query, 30, viewerID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

@@ -2,7 +2,7 @@
 
 Reddit-style forum for fandom communities: posts, nested comments, communities, real-time chat, moderation, notifications, and analytics.
 
-**Stack:** Go (Gin + GORM) backend · React (Vite) frontend · SQLite (default) or PostgreSQL · MinIO (optional) · Prometheus + Grafana + Loki (optional observability)
+**Stack:** Go (Gin + GORM) backend · React (Vite) frontend · **PostgreSQL** (default) · SQLite (dev fallback) · Redis · RabbitMQ · MinIO (optional) · Prometheus + Grafana + Loki + Tempo
 
 ---
 
@@ -27,8 +27,8 @@ Go API (cmd/api)
     ├── email/        SMTP notifications (optional)
     └── storage/      MinIO or local ./uploads
 
-SQLite / PostgreSQL          MinIO (optional)
-Prometheus / Grafana / Loki  (docker-compose)
+PostgreSQL / Redis / RabbitMQ   MinIO (optional)
+Prometheus / Grafana / Loki / Tempo (docker-compose)
 ```
 
 Backend follows layered architecture: **handler → service → repository → model**. Frontend uses a single API client (`src/api/nexusApi.js`) and React Context for auth.
@@ -83,7 +83,9 @@ API: **http://localhost:8080**
 Health: `GET /health`  
 Metrics: `GET /metrics`
 
-On first start, SQLite file `backend/nexus_forum.db` is created automatically, tables are migrated, search indexes are built, and demo users are seeded if the DB is empty.
+On first start, GORM auto-migrates all tables, PostgreSQL FTS indexes are created when using Postgres, and demo users are seeded if the DB is empty.
+
+For **SQLite dev fallback**: set `DB_TYPE=sqlite` in `backend/.env`.
 
 A background worker publishes due **scheduled posts** every 30 seconds.
 
@@ -145,11 +147,15 @@ docker compose up -d --build
 |-----------|-----------------------------|
 | Frontend  | http://localhost:5173       |
 | Backend   | http://localhost:8080       |
+| PostgreSQL| localhost:5432              |
+| Redis     | localhost:6379              |
+| RabbitMQ  | http://localhost:15672 (guest/guest) |
 | MinIO API | http://localhost:9000       |
 | MinIO UI  | http://localhost:9001       |
 | Prometheus| http://localhost:9090       |
 | Grafana   | http://localhost:3000       |
 | Loki      | http://localhost:3100       |
+| Tempo     | localhost:4318 (OTLP)       |
 
 Grafana default login: **admin / admin**
 
@@ -196,6 +202,17 @@ Example query: `http_requests_total`
 - Loki config: `monitoring/loki/loki-config.yml`
 - Promtail ships Docker container logs to Loki (`monitoring/promtail/promtail-config.yml`).
 - Query logs in Grafana Explore with label `{container=~".*backend.*"}`.
+
+---
+
+## Tempo & OpenTelemetry
+
+- **Tempo** runs in docker-compose (ports 4317 gRPC, 4318 HTTP OTLP, 3200 UI).
+- Backend enables tracing when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (e.g. `tempo:4318` in compose).
+- Gin requests and GORM queries are traced via `otelgin` + GORM OTEL plugin (`internal/telemetry/`).
+- View traces in Grafana → Explore → Tempo.
+
+Local Go without Docker: tracing is disabled unless you point `OTEL_EXPORTER_OTLP_ENDPOINT` at a running collector.
 
 ---
 
@@ -247,14 +264,80 @@ Password reset and notification emails also use SMTP when enabled.
 
 ---
 
+## PostgreSQL setup
+
+Default database is PostgreSQL. Local without Docker:
+
+```bash
+createdb nexus_forum
+# backend/.env
+DB_TYPE=postgres
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/nexus_forum?sslmode=disable
+```
+
+### Migrate from SQLite
+
+```bash
+# Backup existing SQLite
+cp backend/nexus_forum.db backups/nexus_forum-$(date +%F).db
+# Start Postgres, point DATABASE_URL, restart API — tables auto-migrate
+# Re-seed or import data manually; demo reset:
+cd backend && go run ./cmd/demo-cleanup/...
+```
+
+Search uses **PostgreSQL FTS** (`to_tsvector` / `plainto_tsquery` / `ts_rank`) with `simple` config for Cyrillic + Latin mixed queries.
+
+## Redis
+
+`REDIS_URL=redis://localhost:6379/0` enables:
+- API rate limiting (per-IP per-route)
+- Feed/hot-post cache keys (when Redis available)
+
+## RabbitMQ
+
+`RABBITMQ_URL=amqp://guest:guest@localhost:5672/` publishes async notification events to queue `nexus.notifications`.
+
+## Web Push
+
+Generate VAPID keys:
+
+```bash
+npx web-push generate-vapid-keys
+```
+
+Set in `backend/.env`:
+
+```env
+VAPID_PUBLIC_KEY=...
+VAPID_PRIVATE_KEY=...
+VAPID_SUBJECT=mailto:admin@example.com
+```
+
+Frontend registers `public/sw.js` and subscribes via **Settings → Push notifications**.
+
+## WebSocket (live post updates)
+
+- Chat: `GET /api/ws/chat/:id?token=JWT`
+- Global notifications: `GET /api/ws/global?token=JWT`
+- **Live comments/votes on post page:** `GET /api/ws/post/:id?token=JWT`
+
+## CI/CD
+
+GitHub Actions workflow `.github/workflows/ci.yml`:
+- `go vet` + `go test ./...` + API build
+- `npm ci` + `npm run build`
+
 ## Environment variables
 
 | Variable | Location | Purpose |
 |----------|----------|---------|
 | `JWT_SECRET` | backend `.env` | JWT signing |
-| `DB_TYPE` | backend | `sqlite` or `postgres` |
-| `SQLITE_DB` | backend | SQLite filename |
+| `DB_TYPE` | backend | `postgres` (default) or `sqlite` |
 | `DATABASE_URL` | backend | Postgres DSN |
+| `SQLITE_DB` | backend | SQLite filename (dev fallback) |
+| `REDIS_URL` | backend | Redis for cache + rate limits |
+| `RABBITMQ_URL` | backend | Async notification queue |
+| `VAPID_*` | backend | Web Push keys |
 | `FRONTEND_URL` | backend | OAuth redirects, email links |
 | `GOOGLE_CLIENT_ID/SECRET` | backend | Google OAuth |
 | `GITHUB_CLIENT_ID/SECRET` | backend | GitHub OAuth |
@@ -292,28 +375,72 @@ cd backend
 go test ./...
 ```
 
-Covers auth, posts, comments, moderation, analytics, search normalization, and resilience helpers.
+Covers auth, posts, comments, moderation, analytics, search normalization, repository feed sorting, and resilience helpers.
+
+**Not covered:** HTTP handler integration tests, frontend tests, E2E/Playwright, email delivery, OAuth callback flows, WebSocket live tests.
+
+Utility CLIs:
+
+```bash
+cd backend
+go run ./cmd/auth-audit/...    # RBAC endpoint audit against running API
+go run ./scripts/benchperf/... # Latency benchmark for public routes
+```
 
 ---
 
-## Backup strategy
+## TZ compliance summary (requirements audit)
 
-**Current status:** no automated backup job is implemented.
+Status key: **IMPLEMENTED** = backend + frontend + runtime usable · **PARTIAL** = code exists but incomplete UI/runtime · **MISSING** = not in codebase
 
-**Recommended for production:**
+| Area | Status | Notes |
+|------|--------|-------|
+| Auth (login, register, JWT, refresh, sessions) | IMPLEMENTED | |
+| GitHub OAuth | IMPLEMENTED | Required; configure `GITHUB_CLIENT_ID/SECRET` |
+| Google OAuth | IMPLEMENTED | |
+| Email confirmation / OTP | PARTIAL | SMTP or dev OTP `123456` |
+| Communities + moderator promote/demote | IMPLEMENTED | UI on Community page |
+| Crosspost | IMPLEMENTED | `POST /api/posts/crosspost` |
+| Karma (post + comment + total) | IMPLEMENTED | Replaces XP; computed from vote scores |
+| Comment thread collapse | IMPLEMENTED | Post page |
+| Trending searches | IMPLEMENTED | `GET /api/search/trending` |
+| PostgreSQL FTS search | IMPLEMENTED | `simple` config, Cyrillic + Latin |
+| Web Push | PARTIAL | Requires VAPID keys + browser permission |
+| Live WS comments/votes | IMPLEMENTED | `/api/ws/post/:id` |
+| Redis cache / rate limits | PARTIAL | Requires `REDIS_URL` |
+| RabbitMQ | PARTIAL | Requires `RABBITMQ_URL`; queue `nexus.notifications` |
+| Feature flags | IMPLEMENTED | Admin panel → Флаги |
+| Image compression on upload | IMPLEMENTED | JPEG/PNG resize + re-encode |
+| CI/CD | IMPLEMENTED | `.github/workflows/ci.yml` |
+| Personal recommendations | MISSING | Future |
+| Mobile apps (iOS/Android) | MISSING | TZ lists platforms; no native app in repo |
+| Elasticsearch | NOT USED | PostgreSQL FTS satisfies TZ search requirement |
+
+**Production readiness:** **MOSTLY READY** — core TZ web MVP complete. Remaining gaps: mobile apps, personal recommendations, full push delivery without VAPID setup.
+
+---
+
+## Backup & restore
+
+Scripts in `scripts/`:
 
 ```bash
-# SQLite
-cp backend/nexus_forum.db "backups/nexus_forum-$(date +%F).db"
+# Backup SQLite DB + local uploads (+ optional MinIO mirror)
+./scripts/backup.sh
 
-# Postgres
-pg_dump "$DATABASE_URL" > "backups/nexus_forum-$(date +%F).sql"
-
-# MinIO
-mc mirror local/nexus-forum /backups/minio/
+# Restore from a backup directory
+./scripts/restore.sh backups/20260609-120000
 ```
 
-Schedule daily cron + off-site copy. For HA, use managed Postgres with replicas (not included in this repo).
+`backup.sh` keeps **14 days** of snapshots by default (`RETENTION_DAYS`). Supports SQLite and Postgres (`DB_TYPE`, `DATABASE_URL`).
+
+**Demo reset** (backs up DB first, then seeds minimal dataset):
+
+```bash
+cd backend && go run ./cmd/demo-cleanup/...
+```
+
+For production, schedule `./scripts/backup.sh` via cron and copy snapshots off-site. Failover/HA (Postgres replicas, multi-region) is not implemented in this repo.
 
 ---
 

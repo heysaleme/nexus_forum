@@ -25,6 +25,13 @@ export default function Search() {
     const [activeTab, setActiveTab] = useState('all');
     const [results, setResults] = useState({ posts: [], communities: [], users: [] });
     const [loading, setLoading] = useState(false);
+    const [trending, setTrending] = useState([]);
+
+    useEffect(() => {
+        nexusApi.Search.trending(12)
+            .then((rows) => setTrending(Array.isArray(rows) ? rows : []))
+            .catch(() => setTrending([]));
+    }, []);
 
     useEffect(() => {
         const q = searchParams.get('q');
@@ -76,6 +83,31 @@ export default function Search() {
                     />
                 </div>
             </form>
+
+            {trending.length > 0 && (
+                <div className="mb-4">
+                    <p className="text-xs font-bold text-muted-foreground mb-2">Популярные запросы</p>
+                    <div className="flex flex-wrap gap-2">
+                        {trending.map((row) => (
+                            <button
+                                key={row.id || row.query}
+                                type="button"
+                                onClick={() => {
+                                    setQuery(row.query);
+                                    setSearchParams({ q: row.query });
+                                    doSearch(row.query);
+                                }}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/60 hover:bg-primary/10 hover:text-primary text-xs font-semibold transition-colors"
+                            >
+                                {row.query}
+                                {row.count > 1 && (
+                                    <Badge variant="secondary" className="text-[9px] h-4 px-1 border-0 bg-background/80">{row.count}</Badge>
+                                )}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* Tabs */}
             <div className="flex gap-2 overflow-x-auto scrollbar-hide mb-4 pb-1">

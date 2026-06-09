@@ -12,7 +12,7 @@ type Achievement struct {
 	Tier                    string `json:"tier"`
 }
 
-func computeAchievements(userID uint, stats *repository.ProfileStats, ownedCommunities int64, level int, xp int) []Achievement {
+func computeAchievements(userID uint, stats *repository.ProfileStats, ownedCommunities int64, totalKarma int) []Achievement {
 	var out []Achievement
 	if stats.PostsCount >= 1 {
 		out = append(out, Achievement{ID: "first_post", UserID: userID, AchievementName: "first_post", AchievementDescription: "Первый пост", Tier: "silver"})
@@ -26,11 +26,11 @@ func computeAchievements(userID uint, stats *repository.ProfileStats, ownedCommu
 	if stats.FollowersCount >= 5 {
 		out = append(out, Achievement{ID: "rising_star", UserID: userID, AchievementName: "rising_star", AchievementDescription: "5+ подписчиков", Tier: "gold"})
 	}
-	if level >= 3 {
-		out = append(out, Achievement{ID: "veteran", UserID: userID, AchievementName: "veteran", AchievementDescription: "Уровень 3+", Tier: "silver"})
+	if totalKarma >= 50 {
+		out = append(out, Achievement{ID: "veteran", UserID: userID, AchievementName: "veteran", AchievementDescription: "50+ кармы", Tier: "silver"})
 	}
-	if xp >= 100 {
-		out = append(out, Achievement{ID: "top_contributor", UserID: userID, AchievementName: "top_contributor", AchievementDescription: "100+ XP", Tier: "gold"})
+	if totalKarma >= 100 {
+		out = append(out, Achievement{ID: "top_contributor", UserID: userID, AchievementName: "top_contributor", AchievementDescription: "100+ кармы", Tier: "gold"})
 	}
 	return out
 }

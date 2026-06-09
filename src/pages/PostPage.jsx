@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { nexusApi } from '@/api/nexusApi';
 import { useAuth } from '@/lib/AuthContext';
@@ -8,7 +8,10 @@ import { Badge } from '@/components/ui/badge';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import EmptyState from '@/components/ui/EmptyState';
 import ReportModal from '@/components/ui/ReportModal';
-import { ArrowUp, ArrowDown, MessageCircle, Share2, ArrowLeft, Send, Pin, Trash2, ExternalLink, BarChart2, Flag } from 'lucide-react';
+import { ArrowUp, ArrowDown, MessageCircle, Share2, ArrowLeft, Send, Pin, Trash2, ExternalLink, BarChart2, Flag, Repeat2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/components/ui/use-toast';
 import { validateFileSize, UPLOAD_LIMITS_MB, limitLabelForCategory } from '@/lib/validateFileSize';
@@ -191,7 +194,6 @@ function CommentItem({ comment, depth = 0, currentUser, postId, onCommentAdded, 
                 <div className="flex items-center gap-2 mb-1">
                     <img src={comment.author_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${comment.author_username}`} className="w-6 h-6 rounded-full object-cover" alt="" />
                     <Link to={profilePath(comment.author_id, currentUser?.id)} className="text-xs font-bold hover:text-primary">{comment.author_username}</Link>
-                    {comment.author_level && <Badge className="text-[9px] h-4 px-1.5 bg-primary/10 text-primary border-0">Ур. {comment.author_level}</Badge>}
                     <span className="text-[10px] text-muted-foreground ml-auto">{timeAgoShort(comment.created_date)}</span>
                 </div>
 
@@ -296,8 +298,61 @@ export default function PostPage() {
     const [revealed, setRevealed] = useState(false);
     const [memberRole, setMemberRole] = useState(null);
     const [reportOpen, setReportOpen] = useState(false);
+    const [collapsedIds, setCollapsedIds] = useState(() => new Set());
+    const [crosspostOpen, setCrosspostOpen] = useState(false);
+    const [crosspostCommunities, setCrosspostCommunities] = useState([]);
+    const [crosspostTargetId, setCrosspostTargetId] = useState('');
+    const [crosspostTitle, setCrosspostTitle] = useState('');
+    const [crossposting, setCrossposting] = useState(false);
+    const wsRef = useRef(null);
 
     useEffect(() => { loadPost(); }, [id, user]);
+
+    const getWsHost = () => {
+        const apiBase = nexusApi.BASE_URL;
+        if (apiBase.startsWith('http')) {
+            try {
+                return new URL(apiBase).host;
+            } catch {
+                return window.location.host;
+            }
+        }
+        return window.location.host;
+    };
+
+    useEffect(() => {
+        if (!id || !user) return undefined;
+        const token = localStorage.getItem('nexus_forum_session_token');
+        if (!token) return undefined;
+
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${getWsHost()}/api/ws/post/${id}?token=${encodeURIComponent(token)}`;
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
+
+        ws.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'vote' && msg.data?.post_id === Number(id)) {
+                    setScore(msg.data.score ?? 0);
+                } else if (msg.type === 'comment' && msg.data) {
+                    const incoming = msg.data;
+                    setComments((prev) => {
+                        if (prev.some((c) => c.id === incoming.id)) return prev;
+                        return [...prev, incoming];
+                    });
+                    setPost((prev) => (prev ? { ...prev, comment_count: (prev.comment_count || 0) + 1 } : prev));
+                }
+            } catch {
+                // ignore malformed messages
+            }
+        };
+
+        return () => {
+            ws.close();
+            wsRef.current = null;
+        };
+    }, [id, user]);
 
     const loadPost = async () => {
         setLoading(true);
@@ -515,22 +570,116 @@ export default function PostPage() {
         setPost((prev) => (prev ? { ...prev, comment_count: Math.max(0, (prev.comment_count || 1) - 1) } : prev));
     };
 
-    const renderComments = (list, depth = 0) => list.map(comment => (
-        <div key={comment.id}>
-            <CommentItem
-                comment={comment}
-                depth={depth}
-                currentUser={user}
-                postId={id}
-                onCommentAdded={handleCommentAdded}
-                onCommentUpdated={handleCommentUpdated}
-                onCommentRemoved={handleCommentRemoved}
-                canDeleteOthers={isGlobalAdminOrMod || memberRole === 'owner' || memberRole === 'moderator'}
-            />
-            {comment.children?.length > 0 && <div>{renderComments(comment.children, depth + 1)}</div>}
-            <div className="border-b border-border/20 last:border-0" />
-        </div>
-    ));
+    const countReplies = useCallback((comment) => {
+        let n = 0;
+        const walk = (node) => {
+            (node.children || []).forEach((ch) => {
+                n += 1;
+                walk(ch);
+            });
+        };
+        walk(comment);
+        return n;
+    }, []);
+
+    const toggleCollapse = (commentId) => {
+        setCollapsedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(commentId)) next.delete(commentId);
+            else next.add(commentId);
+            return next;
+        });
+    };
+
+    const openCrosspostModal = async () => {
+        if (!user) {
+            triggerAuthModal('Для кросспоста необходимо войти.');
+            return;
+        }
+        try {
+            const memberships = await nexusApi.entities.CommunityMember.filter({ user_id: user.id });
+            const communityIds = memberships.map((m) => m.community_id).filter((cid) => cid !== post?.community_id);
+            const communities = await Promise.all(
+                communityIds.map(async (cid) => {
+                    const rows = await nexusApi.entities.Community.filter({ id: cid });
+                    return rows[0];
+                })
+            );
+            setCrosspostCommunities(communities.filter(Boolean));
+            setCrosspostTitle(post?.title || '');
+            setCrosspostTargetId('');
+            setCrosspostOpen(true);
+        } catch {
+            toast({ title: 'Не удалось загрузить сообщества', variant: 'destructive' });
+        }
+    };
+
+    const handleCrosspost = async () => {
+        if (!crosspostTargetId || crossposting) return;
+        setCrossposting(true);
+        try {
+            const created = await nexusApi.entities.Post.crosspost({
+                original_post_id: post.id,
+                target_community_id: Number(crosspostTargetId),
+                title: crosspostTitle.trim() || post.title,
+            });
+            toast({ title: 'Кросспост опубликован' });
+            setCrosspostOpen(false);
+            navigate(`/post/${created.id}`);
+        } catch (err) {
+            toast({ title: err.message || 'Не удалось создать кросспост', variant: 'destructive' });
+        } finally {
+            setCrossposting(false);
+        }
+    };
+
+    const renderComments = (list, depth = 0) => list.map(comment => {
+        const hasChildren = comment.children?.length > 0;
+        const isCollapsed = collapsedIds.has(comment.id);
+        const replyCount = hasChildren ? countReplies(comment) : 0;
+
+        return (
+            <div key={comment.id}>
+                <div className={`flex gap-1 ${depth > 0 ? '' : ''}`}>
+                    {hasChildren && (
+                        <button
+                            type="button"
+                            onClick={() => toggleCollapse(comment.id)}
+                            className="flex-shrink-0 mt-3 w-7 h-7 sm:w-6 sm:h-6 flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground touch-manipulation"
+                            aria-label={isCollapsed ? 'Развернуть ветку' : 'Свернуть ветку'}
+                        >
+                            {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        </button>
+                    )}
+                    <div className={`flex-1 min-w-0 ${!hasChildren && depth > 0 ? 'ml-7 sm:ml-6' : ''}`}>
+                        <CommentItem
+                            comment={comment}
+                            depth={depth}
+                            currentUser={user}
+                            postId={id}
+                            onCommentAdded={handleCommentAdded}
+                            onCommentUpdated={handleCommentUpdated}
+                            onCommentRemoved={handleCommentRemoved}
+                            canDeleteOthers={isGlobalAdminOrMod || memberRole === 'owner' || memberRole === 'moderator'}
+                        />
+                        {isCollapsed && replyCount > 0 && (
+                            <button
+                                type="button"
+                                onClick={() => toggleCollapse(comment.id)}
+                                className="ml-8 mb-2 text-xs font-semibold text-primary hover:underline touch-manipulation"
+                            >
+                                Показать {replyCount} {replyCount === 1 ? 'ответ' : replyCount < 5 ? 'ответа' : 'ответов'}
+                            </button>
+                        )}
+                        {hasChildren && !isCollapsed && (
+                            <div>{renderComments(comment.children, depth + 1)}</div>
+                        )}
+                    </div>
+                </div>
+                <div className="border-b border-border/20 last:border-0" />
+            </div>
+        );
+    });
 
     if (loading) return <LoadingSpinner size="lg" className="py-32" />;
     if (!post) return <EmptyState icon={MessageCircle} title="Публикация не найдена" />;
@@ -648,8 +797,29 @@ export default function PostPage() {
                     </div>
                 ) : (
                     <>
+                        {post.is_crosspost && post.original_post_id && (
+                            <div className="px-4 mb-2">
+                                <Link
+                                    to={`/post/${post.original_post_id}`}
+                                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary"
+                                >
+                                    <Repeat2 className="w-3.5 h-3.5" />
+                                    {post.original_post_title
+                                        ? `Кросспост: «${post.original_post_title}»`
+                                        : 'Оригинальная публикация'}
+                                    {post.original_community_name && (
+                                        <span className="text-muted-foreground">· {post.original_community_name}</span>
+                                    )}
+                                </Link>
+                            </div>
+                        )}
                         <h1 className="px-4 text-[16px] font-display font-black text-foreground leading-snug mb-2 flex items-center gap-2 flex-wrap">
                             {post.title}
+                            {post.is_crosspost && post.original_post_id && (
+                                <Badge className="text-[9px] bg-blue-100 text-blue-700 border-0 gap-0.5 rounded font-bold">
+                                    <Repeat2 className="w-2.5 h-2.5" />Кросспост
+                                </Badge>
+                            )}
                             {post.is_nsfw && <Badge variant="destructive" className="text-[9px] uppercase px-1.5 py-0 rounded font-black">NSFW</Badge>}
                             {post.is_spoiler && <Badge className="text-[9px] bg-yellow-600 text-white uppercase px-1.5 py-0 rounded font-black hover:bg-yellow-600">SPOILER</Badge>}
                             {post.type === 'poll' && <Badge className="text-[9px] bg-blue-100 text-blue-700 border-0 gap-1 rounded font-bold"><BarChart2 className="w-2.5 h-2.5" />Опрос</Badge>}
@@ -721,6 +891,12 @@ export default function PostPage() {
                     <button onClick={() => { navigator.clipboard?.writeText(window.location.href); toast({ title: '🔗 Ссылка скопирована' }); }} className="h-8 px-3 text-muted-foreground hover:text-foreground">
                         <Share2 className="w-4 h-4" />
                     </button>
+                    {user && !post.is_crosspost && (
+                        <button onClick={openCrosspostModal} className="h-8 px-3 text-muted-foreground hover:text-primary flex items-center gap-1 text-xs font-semibold">
+                            <Repeat2 className="w-4 h-4" />
+                            <span className="hidden sm:inline">Кросспост</span>
+                        </button>
+                    )}
                 </div>
 
                 {/* Divider */}
@@ -790,6 +966,51 @@ export default function PostPage() {
                     currentUser={user}
                 />
             )}
+
+            <Dialog open={crosspostOpen} onOpenChange={setCrosspostOpen}>
+                <DialogContent className="sm:max-w-md rounded-2xl">
+                    <DialogHeader>
+                        <DialogTitle className="font-display font-black">Кросспост</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-3 py-2">
+                        <div>
+                            <p className="text-xs font-semibold text-muted-foreground mb-1.5">Сообщество</p>
+                            <Select value={crosspostTargetId} onValueChange={setCrosspostTargetId}>
+                                <SelectTrigger className="rounded-xl h-10 text-sm">
+                                    <SelectValue placeholder="Выберите сообщество" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {crosspostCommunities.map((c) => (
+                                        <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            {crosspostCommunities.length === 0 && (
+                                <p className="text-xs text-muted-foreground mt-1">Вступите в другое сообщество для кросспоста</p>
+                            )}
+                        </div>
+                        <div>
+                            <p className="text-xs font-semibold text-muted-foreground mb-1.5">Заголовок</p>
+                            <Input
+                                value={crosspostTitle}
+                                onChange={(e) => setCrosspostTitle(e.target.value)}
+                                className="rounded-xl h-10 text-sm"
+                                placeholder="Заголовок кросспоста"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter className="gap-2">
+                        <Button variant="ghost" className="rounded-xl" onClick={() => setCrosspostOpen(false)}>Отмена</Button>
+                        <Button
+                            className="nexus-gradient border-0 text-white rounded-xl"
+                            disabled={!crosspostTargetId || crossposting}
+                            onClick={handleCrosspost}
+                        >
+                            {crossposting ? <LoadingSpinner size="sm" /> : 'Опубликовать'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

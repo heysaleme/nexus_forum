@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"strings"
+
+	"nexus-forum-backend/internal/media"
 
 	"github.com/gin-gonic/gin"
 )
@@ -33,8 +36,21 @@ func (h *Handlers) UploadFile(c *gin.Context) {
 		return
 	}
 
-	reader := io.MultiReader(bytes.NewReader(sniff[:n]), src)
-	url, mimeType, err := h.UploadService.Upload(c.Request.Context(), category, file.Filename, reader, file.Size, sniff[:n])
+	fullData, err := media.ReadAll(io.MultiReader(bytes.NewReader(sniff[:n]), src), file.Size)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file"})
+		return
+	}
+	mimeType := http.DetectContentType(fullData)
+	cleanMime := strings.Split(mimeType, ";")[0]
+	if strings.HasPrefix(cleanMime, "image/") {
+		if compressed, newMime, cerr := media.CompressImageIfNeeded(cleanMime, fullData); cerr == nil {
+			fullData = compressed
+			cleanMime = newMime
+		}
+	}
+	reader := bytes.NewReader(fullData)
+	url, mimeType, err := h.UploadService.Upload(c.Request.Context(), category, file.Filename, reader, int64(len(fullData)), fullData[:min(512, len(fullData))])
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

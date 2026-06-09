@@ -57,6 +57,16 @@ func init() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
 }
 
+func newTestUserService(db *gorm.DB) service.UserService {
+	return service.NewUserService(
+		repository.NewUserRepository(db),
+		repository.NewFollowRepository(db),
+		repository.NewNotificationRepository(db),
+		repository.NewModerationRepository(db),
+		repository.NewKarmaRepository(db),
+	)
+}
+
 func newTestAuthService(db *gorm.DB, secret string) service.AuthService {
 	return service.NewAuthService(
 		repository.NewUserRepository(db),
@@ -104,9 +114,6 @@ func TestAuthService_RegisterAndVerifyOTP(t *testing.T) {
 	}
 	if refresh == "" {
 		t.Error("expected non-empty refresh token")
-	}
-	if user.Level != 1 || user.XP != 0 {
-		t.Errorf("new user should have level=1 xp=0, got level=%d xp=%d", user.Level, user.XP)
 	}
 }
 
@@ -230,17 +237,14 @@ func TestAuthService_ValidateToken(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// User + XP/Level Tests
+// User + Karma Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestUserService_FollowAndXP(t *testing.T) {
+func TestUserService_FollowAndKarma(t *testing.T) {
 	db := setupDB(t)
 	userRepo := repository.NewUserRepository(db)
-	followRepo := repository.NewFollowRepository(db)
-	notifRepo := repository.NewNotificationRepository(db)
-	modRepo := repository.NewModerationRepository(db)
-	authSvc := newTestAuthService(db, "xp-secret")
-	userSvc := service.NewUserService(userRepo, followRepo, notifRepo, modRepo)
+	authSvc := newTestAuthService(db, "karma-secret")
+	userSvc := newTestUserService(db)
 
 	_ = authSvc.Register("dave@example.com", "pass")
 	_, _, user1, _ := authSvc.VerifyOTP("dave@example.com", "123456")
@@ -251,11 +255,6 @@ func TestUserService_FollowAndXP(t *testing.T) {
 	// Follow
 	if err := userSvc.Follow(user1.ID, user2.ID); err != nil {
 		t.Fatalf("Follow failed: %v", err)
-	}
-
-	updated, _ := userRepo.GetByID(user1.ID)
-	if updated.XP != 4 {
-		t.Errorf("expected 4 XP after follow, got %d", updated.XP)
 	}
 
 	// Cannot follow twice
@@ -274,34 +273,31 @@ func TestUserService_FollowAndXP(t *testing.T) {
 	}
 }
 
-func TestUserService_LevelProgression(t *testing.T) {
+func TestUserService_KarmaFromVotes(t *testing.T) {
 	db := setupDB(t)
 	userRepo := repository.NewUserRepository(db)
-	followRepo := repository.NewFollowRepository(db)
-	notifRepo := repository.NewNotificationRepository(db)
-	modRepo := repository.NewModerationRepository(db)
-	authSvc := newTestAuthService(db, "lvl-secret")
-	userSvc := service.NewUserService(userRepo, followRepo, notifRepo, modRepo)
+	karmaRepo := repository.NewKarmaRepository(db)
+	postRepo := repository.NewPostRepository(db)
+	voteRepo := repository.NewVoteRepository(db)
+	commRepo := repository.NewCommunityRepository(db)
+	postSvc := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, repository.NewSavedPostRepository(db), repository.NewNotificationRepository(db))
 
-	_ = authSvc.Register("frank@example.com", "pass")
-	_, _, user, _ := authSvc.VerifyOTP("frank@example.com", "123456")
+	author := &model.User{Username: "frank", Email: "frank@example.com", PasswordHash: "h", ProfileTheme: "default"}
+	voter := &model.User{Username: "grace", Email: "grace@example.com", PasswordHash: "h", ProfileTheme: "default"}
+	_ = userRepo.Create(author)
+	_ = userRepo.Create(voter)
+	comm := &model.Community{Name: "KarmaComm", Slug: "karma-comm", OwnerID: author.ID, Visibility: "public"}
+	_ = commRepo.Create(comm)
+	post := &model.Post{CommunityID: comm.ID, AuthorID: author.ID, Title: "Karma post", Type: "text", Status: "published", MediaUrls: "[]", Tags: "[]"}
+	_ = postSvc.Create(post)
+	_ = postSvc.Vote(voter.ID, post.ID, 1)
 
-	// Manually set XP to 146 (should be level 2 after next XP-granting action)
-	user.XP = 146
-	_ = userRepo.Update(user)
-
-	target := &model.User{Username: "grace", Email: "grace@example.com", PasswordHash: "h", ProfileTheme: "default"}
-	_ = userRepo.Create(target)
-
-	// Follow gives +4 XP, putting total at 150 => level = (150/100)+1 = 2
-	_ = userSvc.Follow(user.ID, target.ID)
-
-	updated, _ := userRepo.GetByID(user.ID)
-	if updated.XP != 150 {
-		t.Errorf("expected XP=150, got %d", updated.XP)
+	stats, err := karmaRepo.GetForUser(author.ID)
+	if err != nil {
+		t.Fatalf("GetForUser karma: %v", err)
 	}
-	if updated.Level != 2 {
-		t.Errorf("expected Level=2, got %d", updated.Level)
+	if stats.PostKarma != 1 || stats.TotalKarma != 1 {
+		t.Errorf("expected post karma 1, got %+v", stats)
 	}
 }
 
@@ -342,12 +338,6 @@ func TestPostService_CreateAndVote(t *testing.T) {
 	}
 	if post.ID == 0 {
 		t.Error("expected post ID to be set")
-	}
-
-	// Author gets +20 XP from creating a post
-	updatedAuthor, _ := userRepo.GetByID(author.ID)
-	if updatedAuthor.XP != 20 {
-		t.Errorf("expected XP=20 after creating post, got %d", updatedAuthor.XP)
 	}
 
 	// Upvote
@@ -444,12 +434,6 @@ func TestCommentService_CreateAndVote(t *testing.T) {
 	}
 	if comment.ID == 0 {
 		t.Error("expected comment ID to be set")
-	}
-
-	// Commenter gets +8 XP
-	updatedCommenter, _ := userRepo.GetByID(commenter.ID)
-	if updatedCommenter.XP != 8 {
-		t.Errorf("expected XP=8 after comment, got %d", updatedCommenter.XP)
 	}
 
 	// Vote on comment
@@ -656,9 +640,7 @@ func TestUserService_ProfileStats(t *testing.T) {
 	db := setupDB(t)
 	userRepo := repository.NewUserRepository(db)
 	followRepo := repository.NewFollowRepository(db)
-	notifRepo := repository.NewNotificationRepository(db)
-	modRepo := repository.NewModerationRepository(db)
-	userSvc := service.NewUserService(userRepo, followRepo, notifRepo, modRepo)
+	userSvc := newTestUserService(db)
 	commRepo := repository.NewCommunityRepository(db)
 	postRepo := repository.NewPostRepository(db)
 	commentRepo := repository.NewCommentRepository(db)

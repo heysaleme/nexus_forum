@@ -25,11 +25,17 @@ type Post struct {
 	PollOptions  string `gorm:"type:text" json:"poll_options"`
 	PollVotes    string `gorm:"type:text" json:"poll_votes"`
 
+	OriginalPostID  *uint     `gorm:"index" json:"original_post_id,omitempty"`
+	IsCrosspost     bool      `gorm:"default:false" json:"is_crosspost"`
 	IsPinned        bool      `gorm:"default:false" json:"is_pinned"`
 	IsNSFW          bool      `gorm:"default:false" json:"is_nsfw"`
 	IsSpoiler       bool      `gorm:"default:false" json:"is_spoiler"`
 	IsShadowContent bool      `gorm:"default:false" json:"-"` // hidden from non-authors when true
 	CreatedAt       time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"created_date"`
+
+	// Crosspost helper fields
+	OriginalPostTitle string `gorm:"-" json:"original_post_title,omitempty"`
+	OriginalCommunity string `gorm:"-" json:"original_community_name,omitempty"`
 
 	// Helper fields to join for responses
 	AuthorUsername  string `gorm:"-" json:"author_username"`

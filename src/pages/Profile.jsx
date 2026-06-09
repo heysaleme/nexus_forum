@@ -10,13 +10,11 @@ import ReportModal from '@/components/ui/ReportModal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { User, Star, FileText, Bookmark, Trophy, Settings, UserPlus, UserMinus, Clock, Flag, EyeOff } from 'lucide-react';
+import { User, FileText, Bookmark, Trophy, Settings, UserPlus, UserMinus, Clock, Flag, EyeOff, ArrowUpCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useToast } from '@/components/ui/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { isOwnProfile } from '@/lib/profileLink';
-
-const LEVEL_COLORS = ['bg-gray-400', 'bg-blue-400', 'bg-green-400', 'bg-yellow-400', 'bg-orange-400', 'bg-red-400', 'bg-purple-500', 'bg-pink-500', 'bg-indigo-500', 'bg-cyan-500'];
 
 const ACHIEVEMENT_ICONS = {
     first_post: '📝',
@@ -194,9 +192,11 @@ export default function Profile() {
     if (!profileUser && !currentUser) return <EmptyState icon={User} title="Пользователь не найден" />;
 
     const displayUser = profileUser || currentUser;
-    const level = displayUser?.level || 1;
     const theme = displayUser?.profile_theme || 'default';
-    const levelColor = LEVEL_COLORS[Math.min(level - 1, LEVEL_COLORS.length - 1)];
+    const postKarma = displayUser?.post_karma ?? 0;
+    const commentKarma = displayUser?.comment_karma ?? 0;
+    const totalKarma = displayUser?.total_karma ?? (postKarma + commentKarma);
+    const karmaHidden = displayUser.is_private && !isOwn && followStatus !== 'accepted';
 
     // Isolate slash-containing classes from ternary operators in JSX to avoid esbuild parser issues
     const followBtnClass = followStatus === 'accepted'
@@ -247,18 +247,18 @@ export default function Profile() {
                         )}
                     </div>
                 )}
-                <div className="w-32 sm:w-36 mb-2">
-                    <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] font-bold text-foreground">Уровень {level}</span>
-                        <span className="text-[10px] text-muted-foreground">{displayUser?.xp || 0} XP</span>
+                <div className="grid grid-cols-3 gap-2 w-full max-w-xs mb-2 text-center">
+                    <div className="bg-muted/40 rounded-lg px-2 py-1.5">
+                        <p className="text-sm font-black text-foreground">{karmaHidden ? '—' : postKarma}</p>
+                        <p className="text-[9px] text-muted-foreground">посты</p>
                     </div>
-                    <div className="h-2 bg-muted rounded-full overflow-hidden">
-                        <motion.div
-                            initial={{ width: 0 }}
-                            animate={{ width: `${Math.min(100, ((displayUser?.xp || 0) % 100))}%` }}
-                            transition={{ duration: 0.8, ease: 'easeOut' }}
-                            className={`h-full ${levelColor} rounded-full`}
-                        />
+                    <div className="bg-muted/40 rounded-lg px-2 py-1.5">
+                        <p className="text-sm font-black text-foreground">{karmaHidden ? '—' : commentKarma}</p>
+                        <p className="text-[9px] text-muted-foreground">коммент.</p>
+                    </div>
+                    <div className="bg-primary/10 rounded-lg px-2 py-1.5">
+                        <p className="text-sm font-black text-primary">{karmaHidden ? '—' : totalKarma}</p>
+                        <p className="text-[9px] text-muted-foreground">всего</p>
                     </div>
                 </div>
                 {displayUser?.bio && (
@@ -334,8 +334,8 @@ export default function Profile() {
             {/* Stats — three equal columns with clickable followers/following */}
             <div className="flex border-b border-border/30">
                 <div className="flex-1 flex flex-col items-center py-3 border-r border-border/30">
-                    <span className="text-sm font-black text-foreground">{(displayUser.is_private && !isOwn && followStatus !== 'accepted') ? '—' : (displayUser?.xp || 0)}</span>
-                    <span className="text-[10px] text-muted-foreground flex items-center gap-0.5"><Star className="w-2.5 h-2.5 text-yellow-500" />XP</span>
+                    <span className="text-sm font-black text-foreground">{karmaHidden ? '—' : totalKarma}</span>
+                    <span className="text-[10px] text-muted-foreground flex items-center gap-0.5"><ArrowUpCircle className="w-2.5 h-2.5 text-primary" />карма</span>
                 </div>
                 <button
                     onClick={() => {
@@ -534,15 +534,6 @@ export default function Profile() {
                         )}
 
                         <TabsContent value="achievements">
-                            <div className="nexus-card p-4 mb-3">
-                                <p className="text-sm font-bold mb-2">Как получать XP и достижения</p>
-                                <div className="space-y-1 text-xs text-muted-foreground">
-                                    <p>Пост: +20 XP.</p>
-                                    <p>Комментарий: +8 XP.</p>
-                                    <p>Создание сообщества: +30 XP.</p>
-                                    <p>Подписка на пользователя: +4 XP.</p>
-                                </div>
-                            </div>
                             {achievements.length === 0 ? (
                                 <EmptyState icon={Trophy} title="Достижений пока нет" description="Публикуй посты и комментируй для получения наград!" />
                             ) : (

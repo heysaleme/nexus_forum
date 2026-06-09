@@ -458,7 +458,32 @@ func (h *Handlers) VotePost(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if post, err := h.PostService.GetByID(postID); err == nil {
+		h.broadcastPostVote(postID, post.Score)
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func (h *Handlers) CreateCrosspost(c *gin.Context) {
+	uid, ok := getUserID(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		OriginalPostID    uint   `json:"original_post_id"`
+		TargetCommunityID uint   `json:"target_community_id"`
+		Title             string `json:"title"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	post, err := h.PostService.CreateCrosspost(uid, body.OriginalPostID, body.TargetCommunityID, body.Title)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, post)
 }
 
 func (h *Handlers) VotePoll(c *gin.Context) {

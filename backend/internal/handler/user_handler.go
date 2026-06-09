@@ -67,8 +67,9 @@ func (h *Handlers) GetUserByID(c *gin.Context) {
 		if !isAuthorized {
 			user.FollowersCount = 0
 			user.FollowingCount = 0
-			user.XP = 0
-			user.Level = 1
+			user.PostKarma = 0
+			user.CommentKarma = 0
+			user.TotalKarma = 0
 			user.Bio = ""
 		}
 	}

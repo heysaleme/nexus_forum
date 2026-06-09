@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Settings as SettingsIcon, User, Lock, Palette, Upload, LogOut } from 'lucide-react';
+import { Settings as SettingsIcon, User, Lock, Palette, Upload, LogOut, Bell } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import { useNavigate } from 'react-router-dom';
@@ -35,7 +35,12 @@ export default function Settings() {
         profile_theme: 'default', title: '', allow_dms: true, is_private: false,
         email_notify_reply: true, email_notify_mention: true, email_notify_follow: true,
         email_notify_moderation: true, email_notify_report: true,
+        push_notify_comments: true, push_notify_replies: true, push_notify_mentions: true,
+        push_notify_followers: true, push_notify_messages: true, push_notify_moderation: true,
     });
+
+    const [pushSubscribing, setPushSubscribing] = useState(false);
+    const [pushSupported] = useState(() => typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window);
 
     const [pendingRequests, setPendingRequests] = useState([]);
     const [loadingRequests, setLoadingRequests] = useState(false);
@@ -75,6 +80,12 @@ export default function Settings() {
                 email_notify_follow: user.email_notify_follow !== false,
                 email_notify_moderation: user.email_notify_moderation !== false,
                 email_notify_report: user.email_notify_report !== false,
+                push_notify_comments: user.push_notify_comments !== false,
+                push_notify_replies: user.push_notify_replies !== false,
+                push_notify_mentions: user.push_notify_mentions !== false,
+                push_notify_followers: user.push_notify_followers !== false,
+                push_notify_messages: user.push_notify_messages !== false,
+                push_notify_moderation: user.push_notify_moderation !== false,
             });
             if (user.is_private) {
                 loadPendingRequests();
@@ -210,6 +221,74 @@ export default function Settings() {
         nexusApi.auth.logout('/');
     };
 
+    const urlBase64ToUint8Array = (base64String) => {
+        const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+        for (let i = 0; i < rawData.length; i += 1) {
+            outputArray[i] = rawData.charCodeAt(i);
+        }
+        return outputArray;
+    };
+
+    const handlePushSubscribe = async () => {
+        if (!pushSupported) {
+            toast({ title: 'Push-уведомления не поддерживаются в этом браузере', variant: 'destructive' });
+            return;
+        }
+        setPushSubscribing(true);
+        try {
+            const permission = await Notification.requestPermission();
+            if (permission !== 'granted') {
+                toast({ title: 'Разрешите уведомления в браузере', variant: 'destructive' });
+                return;
+            }
+            const reg = await navigator.serviceWorker.ready;
+            const { public_key: vapidKey } = await nexusApi.push.getVapidPublicKey();
+            if (!vapidKey) {
+                toast({ title: 'Push не настроен на сервере', variant: 'destructive' });
+                return;
+            }
+            let subscription = await reg.pushManager.getSubscription();
+            if (!subscription) {
+                subscription = await reg.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(vapidKey),
+                });
+            }
+            const json = subscription.toJSON();
+            await nexusApi.push.subscribe({
+                endpoint: json.endpoint,
+                p256dh: json.keys?.p256dh,
+                auth: json.keys?.auth,
+            });
+            toast({ title: 'Push-уведомления включены' });
+        } catch (err) {
+            toast({ title: err.message || 'Не удалось подписаться на push', variant: 'destructive' });
+        } finally {
+            setPushSubscribing(false);
+        }
+    };
+
+    const handlePushUnsubscribe = async () => {
+        if (!pushSupported) return;
+        setPushSubscribing(true);
+        try {
+            const reg = await navigator.serviceWorker.ready;
+            const subscription = await reg.pushManager.getSubscription();
+            if (subscription) {
+                await nexusApi.push.unsubscribe(subscription.endpoint);
+                await subscription.unsubscribe();
+            }
+            toast({ title: 'Push-уведомления отключены' });
+        } catch (err) {
+            toast({ title: err.message || 'Не удалось отписаться', variant: 'destructive' });
+        } finally {
+            setPushSubscribing(false);
+        }
+    };
+
     return (
         <div className="max-w-2xl mx-auto px-4 py-4">
             <div className="flex items-center gap-2 mb-5">
@@ -314,6 +393,50 @@ export default function Settings() {
                                 />
                             </div>
                         ))}
+                        <div className="border-t border-border/40 pt-4 space-y-3">
+                            <h4 className="text-sm font-bold flex items-center gap-1.5"><Bell className="w-4 h-4" />Push-уведомления</h4>
+                            {!pushSupported ? (
+                                <p className="text-xs text-muted-foreground">Браузер не поддерживает push-уведомления</p>
+                            ) : (
+                                <>
+                                    <div className="flex flex-wrap gap-2">
+                                        <Button
+                                            size="sm"
+                                            className="nexus-gradient border-0 text-white rounded-xl h-8 text-xs"
+                                            disabled={pushSubscribing}
+                                            onClick={handlePushSubscribe}
+                                        >
+                                            {pushSubscribing ? <LoadingSpinner size="sm" /> : 'Подписаться'}
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="rounded-xl h-8 text-xs"
+                                            disabled={pushSubscribing}
+                                            onClick={handlePushUnsubscribe}
+                                        >
+                                            Отписаться
+                                        </Button>
+                                    </div>
+                                    {[
+                                        { key: 'push_notify_comments', label: 'Комментарии к постам' },
+                                        { key: 'push_notify_replies', label: 'Ответы на комментарии' },
+                                        { key: 'push_notify_mentions', label: 'Упоминания' },
+                                        { key: 'push_notify_followers', label: 'Новые подписчики' },
+                                        { key: 'push_notify_messages', label: 'Личные сообщения' },
+                                        { key: 'push_notify_moderation', label: 'Модерация' },
+                                    ].map(({ key, label }) => (
+                                        <div key={key} className="flex items-center justify-between py-1">
+                                            <p className="text-sm">{label}</p>
+                                            <Switch
+                                                checked={profile[key]}
+                                                onCheckedChange={val => setProfile(p => ({ ...p, [key]: val }))}
+                                            />
+                                        </div>
+                                    ))}
+                                </>
+                            )}
+                        </div>
                         <div className="border-t border-border/40 pt-4 space-y-3">
                             <h4 className="text-sm font-bold">Email-уведомления</h4>
                             <p className="text-xs text-muted-foreground">Требуется настройка SMTP на сервере (см. backend/.env.example)</p>

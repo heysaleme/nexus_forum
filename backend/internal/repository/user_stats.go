@@ -16,6 +16,9 @@ type ProfileStats struct {
 	CommentsCount     int64 `json:"comments_count"`
 	SavedCount        int64 `json:"saved_count"`
 	AchievementsCount int64 `json:"achievements_count"`
+	PostKarma         int64 `json:"post_karma"`
+	CommentKarma      int64 `json:"comment_karma"`
+	TotalKarma        int64 `json:"total_karma"`
 }
 
 func (r *userRepository) GetProfileStats(userID uint) (*ProfileStats, error) {
@@ -66,11 +69,15 @@ func (r *userRepository) GetProfileStats(userID uint) (*ProfileStats, error) {
 		return nil, err
 	}
 
-	var user model.User
-	if err := db.Select("level", "xp").First(&user, userID).Error; err != nil {
-		return nil, err
-	}
-	stats.AchievementsCount = countAchievementRules(stats, user.Level, user.XP)
+	var postKarma, commentKarma int64
+	_ = db.Table("posts").Where("author_id = ? AND status = ?", userID, "published").
+		Select("COALESCE(SUM(score),0)").Scan(&postKarma)
+	_ = db.Table("comments").Where("author_id = ? AND is_deleted = ?", userID, false).
+		Select("COALESCE(SUM(score),0)").Scan(&commentKarma)
+	stats.PostKarma = postKarma
+	stats.CommentKarma = commentKarma
+	stats.TotalKarma = postKarma + commentKarma
+	stats.AchievementsCount = countAchievementRules(stats, int(stats.TotalKarma))
 	return stats, nil
 }
 
@@ -92,7 +99,7 @@ func (r *userRepository) SyncFollowCounts(userID uint) error {
 	}).Error
 }
 
-func countAchievementRules(stats *ProfileStats, level, xp int) int64 {
+func countAchievementRules(stats *ProfileStats, totalKarma int) int64 {
 	var n int64
 	if stats.PostsCount >= 1 {
 		n++
@@ -106,10 +113,10 @@ func countAchievementRules(stats *ProfileStats, level, xp int) int64 {
 	if stats.FollowersCount >= 5 {
 		n++
 	}
-	if level >= 3 {
+	if totalKarma >= 50 {
 		n++
 	}
-	if xp >= 100 {
+	if totalKarma >= 100 {
 		n++
 	}
 	return n

@@ -16,15 +16,17 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/plugin/opentelemetry/tracing"
 
+	"nexus-forum-backend/internal/cache"
 	"nexus-forum-backend/internal/config"
 	"nexus-forum-backend/internal/database"
 	"nexus-forum-backend/internal/demo"
 	"nexus-forum-backend/internal/email"
 	"nexus-forum-backend/internal/handler"
-	"nexus-forum-backend/internal/search"
 	"nexus-forum-backend/internal/middleware"
 	"nexus-forum-backend/internal/model"
+	"nexus-forum-backend/internal/queue"
 	"nexus-forum-backend/internal/repository"
+	"nexus-forum-backend/internal/search"
 	"nexus-forum-backend/internal/service"
 	"nexus-forum-backend/internal/storage"
 	"nexus-forum-backend/internal/telemetry"
@@ -52,21 +54,16 @@ func main() {
 		_ = otelShutdown(context.Background())
 	}()
 
-	// 3. Connect to Database
+	// 3. Connect to Database (PostgreSQL primary; SQLite optional dev fallback)
 	var db *gorm.DB
-	if cfg.DBType == "postgres" {
-		db, err = gorm.Open(postgres.Open(cfg.DatabaseURL), &gorm.Config{})
-		if err != nil {
-			logger.Warn("failed to connect to PostgreSQL, falling back to SQLite", "error", err)
-			db, err = gorm.Open(sqlite.Open(cfg.SqliteDB), &gorm.Config{})
-		}
-	} else {
+	if cfg.DBType == "sqlite" {
 		if _, statErr := os.Stat(cfg.SqliteDB); os.IsNotExist(statErr) {
 			logger.Info("sqlite database file not found; a new database will be created on first migration", "path", cfg.SqliteDB)
 		}
 		db, err = gorm.Open(sqlite.Open(cfg.SqliteDB), &gorm.Config{})
+	} else {
+		db, err = gorm.Open(postgres.Open(cfg.DatabaseURL), &gorm.Config{})
 	}
-
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
@@ -75,7 +72,10 @@ func main() {
 	} else {
 		logger.Info("gorm opentelemetry tracing enabled")
 	}
-	logger.Info("database connected", "db_type", cfg.DBType, "sqlite_file", cfg.SqliteDB)
+	logger.Info("database connected", "db_type", cfg.DBType)
+
+	redisClient := cache.New(cfg.RedisURL)
+	mqPublisher := queue.NewPublisher(cfg.RabbitMQURL)
 
 	// 4. Auto Migrate
 	err = db.AutoMigrate(
@@ -99,6 +99,9 @@ func main() {
 		&model.RefreshToken{},
 		&model.EmailVerification{},
 		&model.PostSearchToken{},
+		&model.FeatureFlag{},
+		&model.SearchQuery{},
+		&model.PushSubscription{},
 	)
 	if err != nil {
 		log.Fatalf("failed to auto migrate tables: %v", err)
@@ -108,20 +111,23 @@ func main() {
 	db.Exec("UPDATE user_follows SET status = 'accepted' WHERE status = '' OR status IS NULL")
 	db.Exec("UPDATE users SET email_verified = true WHERE email_verified = false")
 
-	if err := search.Init(db); err != nil {
-		logger.Warn("search index unavailable; falling back to LIKE search", "error", err)
-	} else {
-		if search.FTSEnabled() {
-			if err := search.ReindexAll(db); err != nil {
-				logger.Warn("search reindex failed", "error", err)
-			}
+	if search.PostgresFTSEnabled(db) {
+		if err := search.InitPostgresSearch(db); err != nil {
+			logger.Warn("postgres fts init failed", "error", err)
 		} else {
-			logger.Warn("FTS5 module unavailable in SQLite build; using Unicode token index for search")
+			logger.Info("postgres full-text search enabled")
+		}
+	} else if err := search.Init(db); err != nil {
+		logger.Warn("search index unavailable; falling back to LIKE search", "error", err)
+	} else if search.FTSEnabled() {
+		_ = search.ReindexAll(db)
+	}
+	if !search.PostgresFTSEnabled(db) {
+		if err := search.ReindexPublishedPosts(db); err != nil {
+			logger.Warn("post search reindex failed", "error", err)
 		}
 	}
-	if err := search.ReindexPublishedPosts(db); err != nil {
-		logger.Warn("post search reindex failed", "error", err)
-	}
+	seedFeatureFlags(db)
 
 	logger.Info("database auto-migrations complete")
 	database.PurgeLegacyBase64Media(db)
@@ -145,6 +151,10 @@ func main() {
 	resetRepo := repository.NewPasswordResetRepository(db)
 	refreshRepo := repository.NewRefreshTokenRepository(db)
 	verifyRepo := repository.NewEmailVerificationRepository(db)
+	karmaRepo := repository.NewKarmaRepository(db)
+	flagRepo := repository.NewFeatureFlagRepository(db)
+	searchQueryRepo := repository.NewSearchQueryRepository(db)
+	pushSubRepo := repository.NewPushSubscriptionRepository(db)
 	mailer := email.NewMailer(email.Config{
 		Host:        cfg.SMTPHost,
 		Port:        cfg.SMTPPort,
@@ -155,7 +165,7 @@ func main() {
 	})
 
 	authService := service.NewAuthService(userRepo, modRepo, resetRepo, refreshRepo, verifyRepo, mailer, cfg.JWTSecret, cfg.FrontendURL)
-	userService := service.NewUserService(userRepo, followRepo, notifRepo, modRepo)
+	userService := service.NewUserService(userRepo, followRepo, notifRepo, modRepo, karmaRepo)
 	commService := service.NewCommunityService(commRepo, userRepo)
 	postService := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, savedRepo, notifRepo)
 	commentService := service.NewCommentService(commentRepo, userRepo, postRepo, voteRepo, notifRepo, commRepo)
@@ -163,6 +173,8 @@ func main() {
 	notifService := service.NewNotificationService(notifRepo)
 	modService := service.NewModerationService(modRepo, userRepo, postRepo, commentRepo, commRepo, notifRepo, keywordFilterRepo)
 	analyticsService := service.NewAnalyticsService(analyticsRepo, userRepo, postRepo)
+	flagService := service.NewFeatureFlagService(flagRepo)
+	pushService := service.NewPushService(pushSubRepo, cfg.VAPIDPublic, cfg.VAPIDPrivate, cfg.VAPIDSubject)
 
 	objectStore, err := storage.NewObjectStore(cfg)
 	if err != nil {
@@ -188,8 +200,15 @@ func main() {
 		}
 
 		if recipient, err := userRepo.GetByID(userID); err == nil {
+			karmaRepo.HydrateUser(recipient)
 			email.MaybeNotifyForNotification(mailer, recipient, notif)
+			_ = pushService.SendToUser(recipient, notif.Type, notif.Title, notif.Body)
 		}
+		mqPublisher.PublishNotification(queue.NotificationEvent{
+			UserID: userID,
+			Type:   notif.Type,
+			Data:   map[string]interface{}{"title": notif.Title, "body": notif.Body},
+		})
 
 		var count int64
 		if db != nil {
@@ -207,7 +226,8 @@ func main() {
 		}
 	}
 
-	handlers := handler.NewHandlers(authService, userService, commService, postService, commentService, chatService, notifService, modService, analyticsService, uploadService, wsHub, cfg.TurnstileSecret, mailer.Enabled(), cfg.FrontendURL)
+	handlers := handler.NewHandlers(authService, userService, commService, postService, commentService, chatService, notifService, modService, analyticsService, uploadService, pushService, flagService, searchQueryRepo, karmaRepo, wsHub, cfg.TurnstileSecret, mailer.Enabled(), cfg.FrontendURL)
+	_ = redisClient
 
 	// OAuth handler config
 	oauthCfg := handler.OAuthConfig{
@@ -236,9 +256,9 @@ func main() {
 	r.GET("/health", handler.Health(db))
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
-	authRateLimit := middleware.NewRateLimiter(30, time.Minute)
-	postRateLimit := middleware.NewRateLimiter(15, time.Minute)
-	commentRateLimit := middleware.NewRateLimiter(40, time.Minute)
+	authRateLimit := middleware.NewRateLimiter(30, time.Minute, redisClient)
+	postRateLimit := middleware.NewRateLimiter(15, time.Minute, redisClient)
+	commentRateLimit := middleware.NewRateLimiter(40, time.Minute, redisClient)
 
 	api := r.Group("/api")
 	{
@@ -283,6 +303,8 @@ func main() {
 		publicRead.GET("/posts", handlers.ListPosts)
 		publicRead.GET("/posts/:id", handlers.GetPostByID)
 		publicRead.GET("/search", handlers.Search)
+		api.GET("/search/trending", handlers.TrendingSearches)
+		api.GET("/feature-flags", handlers.GetPublicFeatureFlags)
 
 		// Public Comment list
 		api.GET("/comments", handlers.ListComments)
@@ -313,11 +335,15 @@ func main() {
 			secured.POST("/communities/:id/join", handlers.JoinCommunity)
 			secured.POST("/communities/:id/leave", handlers.LeaveCommunity)
 			secured.DELETE("/communities/:id", handlers.DeleteCommunity)
+			secured.GET("/communities/:id/moderators", handlers.ListCommunityModerators)
+			secured.POST("/communities/:id/moderators/:userId/promote", handlers.PromoteCommunityModerator)
+			secured.POST("/communities/:id/moderators/:userId/demote", handlers.DemoteCommunityModerator)
 
 			// Post actions
 			secured.GET("/posts/following", handlers.ListFollowingPosts)
 			secured.GET("/posts/following-communities", handlers.ListFollowingCommunityPosts)
 			secured.POST("/posts", postRateLimit, handlers.CreatePost)
+			secured.POST("/posts/crosspost", postRateLimit, handlers.CreateCrosspost)
 			secured.PUT("/posts/:id", handlers.UpdatePost)
 			secured.DELETE("/posts/:id", handlers.DeletePost)
 			secured.POST("/posts/:id/vote", handlers.VotePost)
@@ -349,6 +375,9 @@ func main() {
 			secured.POST("/notifications/read", handlers.MarkAllNotificationsRead)
 			secured.POST("/notifications/:id/read", handlers.MarkNotificationRead)
 			secured.PUT("/notifications/:id", handlers.MarkNotificationRead)
+			secured.GET("/push/vapid-public-key", handlers.GetPushPublicKey)
+			secured.POST("/push/subscribe", handlers.SubscribePush)
+			secured.POST("/push/unsubscribe", handlers.UnsubscribePush)
 
 			// Reports (any authenticated user)
 			secured.POST("/reports", handlers.CreateReport)
@@ -378,6 +407,8 @@ func main() {
 			secured.GET("/analytics/reports", middleware.RequireAdmin(), handlers.GetAnalyticsReports)
 			secured.GET("/analytics/retention", middleware.RequireAdmin(), handlers.GetAnalyticsRetention)
 			secured.GET("/analytics/engagement", middleware.RequireAdmin(), handlers.GetAnalyticsEngagement)
+			secured.GET("/admin/feature-flags", middleware.RequireAdmin(), handlers.ListFeatureFlags)
+			secured.PUT("/admin/feature-flags/:key", middleware.RequireAdmin(), handlers.UpdateFeatureFlag)
 			if os.Getenv("ENABLE_BREAKER_DEBUG") == "true" {
 				secured.POST("/admin/circuit-breaker/:name/probe", middleware.RequireAdmin(), handlers.ProbeCircuitBreaker)
 			}
@@ -387,6 +418,7 @@ func main() {
 	// WebSocket endpoint (authenticated via ?token= query param)
 	r.GET("/api/ws/chat/:id", handler.ServeWS(wsHub, chatService, authService))
 	r.GET("/api/ws/global", handler.ServeGlobalWS(wsHub, authService))
+	r.GET("/api/ws/post/:id", handler.ServePostWS(wsHub, authService))
 
 	// Public analytics event tracking (can also be called by anonymous users)
 	r.POST("/api/analytics/track", handlers.TrackEvent)
@@ -438,6 +470,20 @@ func CORSMiddleware() gin.HandlerFunc {
 		}
 
 		c.Next()
+	}
+}
+
+func seedFeatureFlags(db *gorm.DB) {
+	flags := []model.FeatureFlag{
+		{Key: "crosspost", Enabled: true, Description: "Allow crossposting"},
+		{Key: "web_push", Enabled: true, Description: "Browser push notifications"},
+		{Key: "live_ws", Enabled: true, Description: "Live comment/vote WebSocket"},
+	}
+	for _, f := range flags {
+		var existing model.FeatureFlag
+		if err := db.Where("key = ?", f.Key).First(&existing).Error; err != nil {
+			_ = db.Create(&f)
+		}
 	}
 }
 

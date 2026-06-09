@@ -15,6 +15,9 @@ func UserIDsMatching(db *gorm.DB, query string, limit int) ([]uint, error) {
 	if limit <= 0 {
 		limit = 30
 	}
+	if PostgresFTSEnabled(db) {
+		return PostgresUserIDs(db, query, limit)
+	}
 	norm := NormalizeFold(query)
 	like := "%" + escapeLike(norm) + "%"
 	prefix := escapeLike(norm) + "%"

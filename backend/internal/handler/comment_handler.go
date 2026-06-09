@@ -77,6 +77,7 @@ func (h *Handlers) CreateComment(c *gin.Context) {
 		return
 	}
 
+	h.broadcastPostComment(comment.PostID, comment)
 	c.JSON(http.StatusOK, comment)
 }
 

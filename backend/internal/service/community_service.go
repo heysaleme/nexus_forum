@@ -17,6 +17,9 @@ type CommunityService interface {
 	GetMembers(communityID uint) ([]*model.CommunityMember, error)
 	Delete(userID, communityID uint) error
 	Search(query string, limit int) ([]*model.Community, error)
+	PromoteModerator(actorID, communityID, targetUserID uint) error
+	DemoteModerator(actorID, communityID, targetUserID uint) error
+	ListModerators(communityID uint) ([]*model.CommunityMember, error)
 }
 
 type communityService struct {
@@ -29,14 +32,6 @@ func NewCommunityService(repo repository.CommunityRepository, userRepo repositor
 }
 
 func (s *communityService) Create(community *model.Community) error {
-	// Add XP to owner
-	owner, _ := s.userRepo.GetByID(community.OwnerID)
-	if owner != nil {
-		owner.XP += 30
-		recalculateLevel(owner)
-		_ = s.userRepo.Update(owner)
-	}
-
 	err := s.repo.Create(community)
 	if err != nil {
 		return err
@@ -145,4 +140,55 @@ func (s *communityService) Delete(userID, communityID uint) error {
 
 func (s *communityService) Search(query string, limit int) ([]*model.Community, error) {
 	return s.repo.Search(query, limit)
+}
+
+func (s *communityService) canManageMods(actorID, communityID uint) error {
+	comm, err := s.repo.GetByID(communityID)
+	if err != nil {
+		return errors.New("community not found")
+	}
+	if comm.OwnerID == actorID {
+		return nil
+	}
+	user, err := s.userRepo.GetByID(actorID)
+	if err == nil && (user.Role == "admin" || user.Role == "moderator") {
+		return nil
+	}
+	member, err := s.repo.GetMember(actorID, communityID)
+	if err == nil && (member.Role == "owner" || member.Role == "moderator") {
+		return nil
+	}
+	return errors.New("insufficient permissions")
+}
+
+func (s *communityService) PromoteModerator(actorID, communityID, targetUserID uint) error {
+	if err := s.canManageMods(actorID, communityID); err != nil {
+		return err
+	}
+	member, err := s.repo.GetMember(targetUserID, communityID)
+	if err != nil {
+		return errors.New("user is not a community member")
+	}
+	if member.Role == "owner" {
+		return errors.New("cannot change owner role")
+	}
+	return s.repo.UpdateMemberRole(targetUserID, communityID, "moderator")
+}
+
+func (s *communityService) DemoteModerator(actorID, communityID, targetUserID uint) error {
+	if err := s.canManageMods(actorID, communityID); err != nil {
+		return err
+	}
+	member, err := s.repo.GetMember(targetUserID, communityID)
+	if err != nil {
+		return errors.New("user is not a community member")
+	}
+	if member.Role == "owner" {
+		return errors.New("cannot demote owner")
+	}
+	return s.repo.UpdateMemberRole(targetUserID, communityID, "member")
+}
+
+func (s *communityService) ListModerators(communityID uint) ([]*model.CommunityMember, error) {
+	return s.repo.ListModerators(communityID)
 }

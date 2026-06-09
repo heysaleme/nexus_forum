@@ -276,6 +276,53 @@ func (r *postRepository) hydratePostFields(posts []*model.Post) {
 	}
 
 	r.hydrateCommentCounts(posts)
+	r.hydrateCrosspostFields(posts)
+}
+
+func (r *postRepository) hydrateCrosspostFields(posts []*model.Post) {
+	origIDs := make([]uint, 0)
+	for _, post := range posts {
+		if post.OriginalPostID != nil && *post.OriginalPostID > 0 {
+			origIDs = append(origIDs, *post.OriginalPostID)
+		}
+	}
+	if len(origIDs) == 0 {
+		return
+	}
+	var originals []model.Post
+	if err := r.db.Where("id IN ?", origIDs).Find(&originals).Error; err != nil {
+		return
+	}
+	byID := make(map[uint]model.Post, len(originals))
+	commIDs := make(map[uint]struct{})
+	for _, o := range originals {
+		byID[o.ID] = o
+		commIDs[o.CommunityID] = struct{}{}
+	}
+	comms := make(map[uint]model.Community)
+	if len(commIDs) > 0 {
+		ids := make([]uint, 0, len(commIDs))
+		for id := range commIDs {
+			ids = append(ids, id)
+		}
+		var rows []model.Community
+		if err := r.db.Where("id IN ?", ids).Find(&rows).Error; err == nil {
+			for _, c := range rows {
+				comms[c.ID] = c
+			}
+		}
+	}
+	for _, post := range posts {
+		if post.OriginalPostID == nil {
+			continue
+		}
+		if orig, ok := byID[*post.OriginalPostID]; ok {
+			post.OriginalPostTitle = orig.Title
+			if c, ok := comms[orig.CommunityID]; ok {
+				post.OriginalCommunity = c.Name
+			}
+		}
+	}
 }
 
 func (r *postRepository) hydrateCommentCounts(posts []*model.Post) {

@@ -2,7 +2,6 @@ package service
 
 import (
 	"github.com/golang-jwt/jwt/v5"
-	"nexus-forum-backend/internal/model"
 )
 
 type Claims struct {
@@ -37,13 +36,6 @@ func stringsSplit(s, sep string) []string {
 		s = s[i+len(sep):]
 	}
 	return parts
-}
-
-func recalculateLevel(user *model.User) {
-	user.Level = (user.XP / 100) + 1
-	if user.Level < 1 {
-		user.Level = 1
-	}
 }
 
 func maxZero(v int) int {

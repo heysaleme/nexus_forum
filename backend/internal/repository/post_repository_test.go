@@ -117,3 +117,90 @@ func TestPostRepository_ListByFollowing(t *testing.T) {
 		t.Errorf("expected followed author post, got %q", posts[0].Title)
 	}
 }
+
+func TestPostRepository_ListIncludesContent(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&model.User{}, &model.Community{}, &model.Post{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	user := model.User{Username: "author", Email: "a@example.com", PasswordHash: "h"}
+	comm := model.Community{Name: "c", Slug: "c", OwnerID: 1}
+	db.Create(&user)
+	comm.OwnerID = user.ID
+	db.Create(&comm)
+
+	body := "Feed preview body that must be returned by list queries."
+	post := model.Post{
+		CommunityID: comm.ID,
+		AuthorID:    user.ID,
+		Title:       "with content",
+		Content:     body,
+		Type:        "text",
+		Status:      "published",
+		MediaUrls:   "[]",
+		Tags:        "[]",
+	}
+	db.Create(&post)
+
+	repo := NewPostRepository(db)
+	posts, err := repo.List("new", 10, 0)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(posts) != 1 {
+		t.Fatalf("expected 1 post, got %d", len(posts))
+	}
+	if posts[0].Content != body {
+		t.Errorf("expected content %q, got %q", body, posts[0].Content)
+	}
+}
+
+func TestPostRepository_HydrateCommentCounts(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.AutoMigrate(&model.User{}, &model.Community{}, &model.Post{}, &model.Comment{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	user := model.User{Username: "author", Email: "a@example.com", PasswordHash: "h"}
+	comm := model.Community{Name: "c", Slug: "c", OwnerID: 1}
+	db.Create(&user)
+	comm.OwnerID = user.ID
+	db.Create(&comm)
+
+	post := model.Post{
+		CommunityID:  comm.ID,
+		AuthorID:     user.ID,
+		Title:        "comments",
+		Content:      "x",
+		Type:         "text",
+		Status:       "published",
+		CommentCount: 0,
+		MediaUrls:    "[]",
+		Tags:         "[]",
+	}
+	db.Create(&post)
+
+	parent := model.Comment{PostID: post.ID, AuthorID: user.ID, Content: "parent"}
+	db.Create(&parent)
+	reply := model.Comment{PostID: post.ID, ParentID: &parent.ID, AuthorID: user.ID, Content: "reply"}
+	db.Create(&reply)
+
+	repo := NewPostRepository(db)
+	posts, err := repo.List("new", 10, 0)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(posts) != 1 {
+		t.Fatalf("expected 1 post, got %d", len(posts))
+	}
+	if posts[0].CommentCount != 2 {
+		t.Errorf("expected hydrated comment_count 2 (parent + reply), got %d", posts[0].CommentCount)
+	}
+}
