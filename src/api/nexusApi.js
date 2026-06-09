@@ -721,8 +721,16 @@ const nexusApi = {
                         return [];
                     }
                 }
-                // Get all users that follower_id is following
-                if (filter.follower_id) {
+                // Users who follow following_id (followers list)
+                if (filter.following_id && !filter.follower_id) {
+                    try {
+                        return await request(`/users/${filter.following_id}/followers`);
+                    } catch {
+                        return [];
+                    }
+                }
+                // Users that follower_id is following
+                if (filter.follower_id && !filter.following_id) {
                     try {
                         return await request(`/users/${filter.follower_id}/following`);
                     } catch {

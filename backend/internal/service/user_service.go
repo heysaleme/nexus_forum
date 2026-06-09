@@ -158,6 +158,13 @@ func (s *userService) Follow(followerID, followingID uint) error {
 		if followerUser != nil {
 			followerUser.FollowingCount++
 			_ = s.repo.Update(followerUser)
+			_ = s.notifRepo.Create(&model.Notification{
+				UserID:      followingID,
+				Type:        "follow",
+				Title:       "Новый подписчик",
+				Body:        followerUser.Username + " подписался на вас.",
+				ActorAvatar: followerUser.AvatarURL,
+			})
 		}
 		followingUser.FollowersCount++
 		_ = s.repo.Update(followingUser)

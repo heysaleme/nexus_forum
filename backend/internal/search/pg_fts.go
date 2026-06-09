@@ -74,8 +74,38 @@ func PostgresCommentIDs(db *gorm.DB, query string, limit int) ([]uint, error) {
 }
 
 func PostgresUserIDs(db *gorm.DB, query string, limit int) ([]uint, error) {
-	vec := `to_tsvector('simple', coalesce(username,'') || ' ' || coalesce(bio,'') || ' ' || coalesce(email,''))`
-	return pgIDs(db, "users", "", vec, query, limit)
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 30
+	}
+	norm := NormalizeFold(query)
+	like := "%" + escapeLike(norm) + "%"
+
+	var ids []uint
+	err := db.Table("users").
+		Select("id").
+		Where("username ILIKE ? OR email ILIKE ? OR bio ILIKE ?", like, like, like).
+		Limit(limit).
+		Pluck("id", &ids).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// FTS boost: merge ranked full-word matches when ILIKE results are sparse.
+	if len(ids) < limit {
+		vec := `to_tsvector('simple', coalesce(username,'') || ' ' || coalesce(bio,'') || ' ' || coalesce(email,''))`
+		ftsIDs, ftsErr := pgIDs(db, "users", "", vec, query, limit)
+		if ftsErr == nil {
+			ids = appendUnique(ids, ftsIDs...)
+		}
+	}
+	if len(ids) > limit {
+		ids = ids[:limit]
+	}
+	return ids, nil
 }
 
 func PostgresCommunityIDs(db *gorm.DB, query string, limit int) ([]uint, error) {

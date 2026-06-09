@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { nexusApi } from '@/api/nexusApi';
 import { useAuth } from '@/lib/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
+import { profilePath } from '@/lib/profileLink';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -380,7 +381,9 @@ export default function AdminPanel() {
                                     <img src={u.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.email}`} className="w-9 h-9 rounded-full object-cover flex-shrink-0" alt="" />
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2">
-                                            <p className="text-sm font-bold truncate">{u.username || u.email || 'Пользователь'}</p>
+                                            <Link to={profilePath(u.id, user?.id)} className="text-sm font-bold truncate hover:text-primary transition-colors">
+                                                {u.username || u.email || 'Пользователь'}
+                                            </Link>
                                             {u.is_banned && <Badge className="bg-destructive/10 text-destructive text-[9px] border-0">Заблокирован</Badge>}
                                             {u.is_shadow_banned && <Badge className="bg-orange-100 text-orange-700 text-[9px] border-0">Теневой бан</Badge>}
                                         </div>

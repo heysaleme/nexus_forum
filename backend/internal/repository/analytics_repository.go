@@ -34,6 +34,24 @@ func NewAnalyticsRepository(db *gorm.DB) AnalyticsRepository {
 	return &analyticsRepository{db: db}
 }
 
+func (r *analyticsRepository) isPostgres() bool {
+	return r.db != nil && r.db.Dialector.Name() == "postgres"
+}
+
+func (r *analyticsRepository) dateExpr(column string) string {
+	if r.isPostgres() {
+		return column + "::date"
+	}
+	return "DATE(" + column + ")"
+}
+
+func (r *analyticsRepository) sinceDaysFilter(days int) string {
+	if r.isPostgres() {
+		return fmt.Sprintf("created_at >= CURRENT_DATE - INTERVAL '%d days'", days)
+	}
+	return fmt.Sprintf("created_at >= DATE('now', '-%d days')", days)
+}
+
 func (r *analyticsRepository) Track(event *model.AnalyticsEvent) error {
 	return r.db.Create(event).Error
 }
@@ -70,10 +88,9 @@ func (r *analyticsRepository) GetUserGrowth(days int) ([]map[string]interface{},
 		Count int64  `gorm:"column:count"`
 	}
 	var results []dayCount
-	interval := fmt.Sprintf("-%d days", days)
-	query := "SELECT DATE(created_at) as day, COUNT(*) as count FROM users " +
-		"WHERE created_at >= DATE('now', '" + interval + "') " +
-		"GROUP BY DATE(created_at) ORDER BY day ASC"
+	dayCol := r.dateExpr("created_at")
+	query := fmt.Sprintf("SELECT %s as day, COUNT(*) as count FROM users WHERE %s GROUP BY %s ORDER BY day ASC",
+		dayCol, r.sinceDaysFilter(days), dayCol)
 	err := r.db.Raw(query).Scan(&results).Error
 	rows := make([]map[string]interface{}, 0, len(results))
 	for _, row := range results {
@@ -158,33 +175,31 @@ func (r *analyticsRepository) GetActivitySeries(days int) ([]map[string]interfac
 	if days <= 0 {
 		days = 7
 	}
-	interval := fmt.Sprintf("-%d days", days)
-
 	type dayCount struct {
 		Day   string `gorm:"column:day"`
 		Count int64  `gorm:"column:count"`
 	}
 
+	dayCol := r.dateExpr("created_at")
+	sinceFilter := r.sinceDaysFilter(days)
+
 	var userRows []dayCount
-	userQuery := "SELECT DATE(created_at) as day, COUNT(*) as count FROM users " +
-		"WHERE created_at >= DATE('now', '" + interval + "') " +
-		"GROUP BY DATE(created_at) ORDER BY day ASC"
+	userQuery := fmt.Sprintf("SELECT %s as day, COUNT(*) as count FROM users WHERE %s GROUP BY %s ORDER BY day ASC",
+		dayCol, sinceFilter, dayCol)
 	if err := r.db.Raw(userQuery).Scan(&userRows).Error; err != nil {
 		return nil, err
 	}
 
 	var postRows []dayCount
-	postQuery := "SELECT DATE(created_at) as day, COUNT(*) as count FROM posts " +
-		"WHERE status = 'published' AND created_at >= DATE('now', '" + interval + "') " +
-		"GROUP BY DATE(created_at) ORDER BY day ASC"
+	postQuery := fmt.Sprintf("SELECT %s as day, COUNT(*) as count FROM posts WHERE status = 'published' AND %s GROUP BY %s ORDER BY day ASC",
+		dayCol, sinceFilter, dayCol)
 	if err := r.db.Raw(postQuery).Scan(&postRows).Error; err != nil {
 		return nil, err
 	}
 
 	var commentRows []dayCount
-	commentQuery := "SELECT DATE(created_at) as day, COUNT(*) as count FROM comments " +
-		"WHERE created_at >= DATE('now', '" + interval + "') " +
-		"GROUP BY DATE(created_at) ORDER BY day ASC"
+	commentQuery := fmt.Sprintf("SELECT %s as day, COUNT(*) as count FROM comments WHERE %s GROUP BY %s ORDER BY day ASC",
+		dayCol, sinceFilter, dayCol)
 	if err := r.db.Raw(commentQuery).Scan(&commentRows).Error; err != nil {
 		return nil, err
 	}
@@ -259,18 +274,34 @@ func (r *analyticsRepository) retentionForDay(dayOffset int) (float64, error) {
 		Back   int64 `gorm:"column:returned"`
 	}
 	var result row
-	query := fmt.Sprintf(`
-		SELECT
-			COUNT(DISTINCT u.id) AS cohort,
-			COUNT(DISTINCT CASE
-				WHEN EXISTS (
-					SELECT 1 FROM analytics_events e
-					WHERE e.user_id = u.id
-					AND DATE(e.created_at) = DATE(u.created_at, '+%d days')
-				) THEN u.id END) AS returned
-		FROM users u
-		WHERE u.created_at <= DATE('now', '-%d days')
-	`, dayOffset, dayOffset)
+	var query string
+	if r.isPostgres() {
+		query = fmt.Sprintf(`
+			SELECT
+				COUNT(DISTINCT u.id) AS cohort,
+				COUNT(DISTINCT CASE
+					WHEN EXISTS (
+						SELECT 1 FROM analytics_events e
+						WHERE e.user_id = u.id
+						AND e.created_at::date = (u.created_at::date + INTERVAL '%d days')
+					) THEN u.id END) AS returned
+			FROM users u
+			WHERE u.created_at <= CURRENT_DATE - INTERVAL '%d days'
+		`, dayOffset, dayOffset)
+	} else {
+		query = fmt.Sprintf(`
+			SELECT
+				COUNT(DISTINCT u.id) AS cohort,
+				COUNT(DISTINCT CASE
+					WHEN EXISTS (
+						SELECT 1 FROM analytics_events e
+						WHERE e.user_id = u.id
+						AND DATE(e.created_at) = DATE(u.created_at, '+%d days')
+					) THEN u.id END) AS returned
+			FROM users u
+			WHERE u.created_at <= DATE('now', '-%d days')
+		`, dayOffset, dayOffset)
+	}
 	if err := r.db.Raw(query).Scan(&result).Error; err != nil {
 		return 0, err
 	}

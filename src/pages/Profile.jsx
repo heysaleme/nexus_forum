@@ -247,20 +247,6 @@ export default function Profile() {
                         )}
                     </div>
                 )}
-                <div className="grid grid-cols-3 gap-2 w-full max-w-xs mb-2 text-center">
-                    <div className="bg-muted/40 rounded-lg px-2 py-1.5">
-                        <p className="text-sm font-black text-foreground">{karmaHidden ? '—' : postKarma}</p>
-                        <p className="text-[9px] text-muted-foreground">посты</p>
-                    </div>
-                    <div className="bg-muted/40 rounded-lg px-2 py-1.5">
-                        <p className="text-sm font-black text-foreground">{karmaHidden ? '—' : commentKarma}</p>
-                        <p className="text-[9px] text-muted-foreground">коммент.</p>
-                    </div>
-                    <div className="bg-primary/10 rounded-lg px-2 py-1.5">
-                        <p className="text-sm font-black text-primary">{karmaHidden ? '—' : totalKarma}</p>
-                        <p className="text-[9px] text-muted-foreground">всего</p>
-                    </div>
-                </div>
                 {displayUser?.bio && (
                     <p className="text-xs text-muted-foreground text-center max-w-xs mb-2">{displayUser.bio}</p>
                 )}

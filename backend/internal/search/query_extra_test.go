@@ -36,15 +36,17 @@ func TestUserIDsMatching_CyrillicAndLatin(t *testing.T) {
 		}
 	}
 
-	ids, err := UserIDsMatching(db, "amira", 10)
-	if err != nil {
-		t.Fatalf("UserIDsMatching: %v", err)
-	}
-	if len(ids) != 1 || ids[0] != users[0].ID {
-		t.Fatalf("expected amira id %d, got %v", users[0].ID, ids)
+	for _, q := range []string{"amira", "ami", "mir", "AMIRA", "Ami"} {
+		ids, err := UserIDsMatching(db, q, 10)
+		if err != nil {
+			t.Fatalf("UserIDsMatching %q: %v", q, err)
+		}
+		if len(ids) != 1 || ids[0] != users[0].ID {
+			t.Fatalf("query %q: expected amira id %d, got %v", q, users[0].ID, ids)
+		}
 	}
 
-	ids, err = UserIDsMatching(db, "кирил", 10)
+	ids, err := UserIDsMatching(db, "кирил", 10)
 	if err != nil {
 		t.Fatalf("UserIDsMatching cyrillic: %v", err)
 	}

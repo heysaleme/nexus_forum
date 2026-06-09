@@ -258,6 +258,9 @@ func (h *Handlers) GetFollowers(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	if followers == nil {
+		followers = []*model.User{}
+	}
 	c.JSON(http.StatusOK, followers)
 }
 
@@ -293,6 +296,9 @@ func (h *Handlers) GetFollowing(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+	if following == nil {
+		following = []*model.User{}
 	}
 	c.JSON(http.StatusOK, following)
 }

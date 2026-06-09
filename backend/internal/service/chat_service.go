@@ -23,12 +23,13 @@ type ChatService interface {
 }
 
 type chatService struct {
-	repo     repository.ChatRepository
-	userRepo repository.UserRepository
+	repo      repository.ChatRepository
+	userRepo  repository.UserRepository
+	notifRepo repository.NotificationRepository
 }
 
-func NewChatService(repo repository.ChatRepository, userRepo repository.UserRepository) ChatService {
-	return &chatService{repo: repo, userRepo: userRepo}
+func NewChatService(repo repository.ChatRepository, userRepo repository.UserRepository, notifRepo repository.NotificationRepository) ChatService {
+	return &chatService{repo: repo, userRepo: userRepo, notifRepo: notifRepo}
 }
 
 func (s *chatService) CreateRoom(userID uint, participantIDs []uint, name string) (*model.ChatRoom, error) {
@@ -140,6 +141,30 @@ func (s *chatService) SendMessageWithAttachment(senderID, roomID uint, content, 
 		}
 		room.LastMessageAt = time.Now()
 		_ = s.repo.UpdateRoom(room)
+
+		var participantIDs []uint
+		if json.Unmarshal([]byte(room.Participants), &participantIDs) == nil {
+			preview := content
+			if attachmentURL != "" {
+				if attachmentType == "image" {
+					preview = "[Изображение]"
+				} else {
+					preview = "[Файл]"
+				}
+			}
+			for _, pid := range participantIDs {
+				if pid == senderID {
+					continue
+				}
+				_ = s.notifRepo.Create(&model.Notification{
+					UserID:      pid,
+					Type:        "message",
+					Title:       "Новое сообщение",
+					Body:        username + ": " + preview,
+					ActorAvatar: avatar,
+				})
+			}
+		}
 	}
 
 	return msg, nil

@@ -169,7 +169,7 @@ func main() {
 	commService := service.NewCommunityService(commRepo, userRepo)
 	postService := service.NewPostService(postRepo, userRepo, commRepo, voteRepo, savedRepo, notifRepo)
 	commentService := service.NewCommentService(commentRepo, userRepo, postRepo, voteRepo, notifRepo, commRepo)
-	chatService := service.NewChatService(chatRepo, userRepo)
+	chatService := service.NewChatService(chatRepo, userRepo, notifRepo)
 	notifService := service.NewNotificationService(notifRepo)
 	modService := service.NewModerationService(modRepo, userRepo, postRepo, commentRepo, commRepo, notifRepo, keywordFilterRepo)
 	analyticsService := service.NewAnalyticsService(analyticsRepo, userRepo, postRepo)

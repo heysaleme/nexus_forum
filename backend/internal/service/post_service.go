@@ -166,6 +166,7 @@ func (s *postService) Vote(userID, postID uint, value int) error {
 	}
 
 	existing, err := s.voteRepo.GetVote(userID, "post", postID)
+	notifyUpvote := false
 
 	if err == nil {
 		if existing.Value == value {
@@ -185,6 +186,7 @@ func (s *postService) Vote(userID, postID uint, value int) error {
 				post.Upvotes++
 				post.Downvotes = maxZero(post.Downvotes - 1)
 				post.Score += 2
+				notifyUpvote = true
 			} else {
 				post.Downvotes++
 				post.Upvotes = maxZero(post.Upvotes - 1)
@@ -207,13 +209,35 @@ func (s *postService) Vote(userID, postID uint, value int) error {
 		if value == 1 {
 			post.Upvotes++
 			post.Score++
+			notifyUpvote = true
 		} else {
 			post.Downvotes++
 			post.Score--
 		}
 	}
 
-	return s.repo.Update(post)
+	if err := s.repo.Update(post); err != nil {
+		return err
+	}
+
+	if notifyUpvote && post.AuthorID != userID {
+		voter, _ := s.userRepo.GetByID(userID)
+		voterName := "Кто-то"
+		voterAvatar := ""
+		if voter != nil {
+			voterName = voter.Username
+			voterAvatar = voter.AvatarURL
+		}
+		_ = s.notifRepo.Create(&model.Notification{
+			UserID:      post.AuthorID,
+			Type:        "post_vote",
+			Title:       "Голос за пост",
+			Body:        voterName + " оценил ваш пост «" + post.Title + "».",
+			ActorAvatar: voterAvatar,
+		})
+	}
+
+	return nil
 }
 
 func (s *postService) GetVote(userID, postID uint) (*model.Vote, error) {
