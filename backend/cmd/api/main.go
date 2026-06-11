@@ -18,6 +18,7 @@ import (
 
 	"nexus-forum-backend/internal/cache"
 	"nexus-forum-backend/internal/config"
+	"nexus-forum-backend/internal/featureflags"
 	"nexus-forum-backend/internal/database"
 	"nexus-forum-backend/internal/demo"
 	"nexus-forum-backend/internal/email"
@@ -233,22 +234,29 @@ func main() {
 		if recipient, err := userRepo.GetByID(userID); err == nil {
 			karmaRepo.HydrateUser(recipient)
 			email.MaybeNotifyForNotification(mailer, recipient, notif)
-			if pushResults, pushErr := pushService.SendToUserDetailed(recipient, notif.Type, notif.Title, notif.Body); pushErr != nil {
-				logger.Warn("notification dispatcher: push skipped or failed",
+			if flagService.IsEnabled(featureflags.WebPush) {
+				if pushResults, pushErr := pushService.SendToUserDetailed(recipient, notif.Type, notif.Title, notif.Body); pushErr != nil {
+					logger.Warn("notification dispatcher: push skipped or failed",
+						"user_id", userID,
+						"type", notif.Type,
+						"error", pushErr,
+					)
+				} else {
+					for _, pr := range pushResults {
+						logger.Info("notification dispatcher: push attempt",
+							"user_id", userID,
+							"endpoint_host", pr.Endpoint,
+							"http_status", pr.HTTPStatusCode,
+							"delivered", pr.Delivered,
+							"error", pr.Error,
+						)
+					}
+				}
+			} else {
+				logger.Info("notification dispatcher: push skipped (feature disabled)",
 					"user_id", userID,
 					"type", notif.Type,
-					"error", pushErr,
 				)
-			} else {
-				for _, pr := range pushResults {
-					logger.Info("notification dispatcher: push attempt",
-						"user_id", userID,
-						"endpoint_host", pr.Endpoint,
-						"http_status", pr.HTTPStatusCode,
-						"delivered", pr.Delivered,
-						"error", pr.Error,
-					)
-				}
 			}
 		}
 		mqPublisher.PublishNotification(queue.NotificationEvent{
@@ -475,7 +483,7 @@ func main() {
 	// WebSocket endpoint (authenticated via ?token= query param)
 	r.GET("/api/ws/chat/:id", handler.ServeWS(wsHub, chatService, authService))
 	r.GET("/api/ws/global", handler.ServeGlobalWS(wsHub, authService))
-	r.GET("/api/ws/post/:id", handler.ServePostWS(wsHub, authService))
+	r.GET("/api/ws/post/:id", handler.ServePostWS(wsHub, authService, flagService))
 
 	// Public analytics event tracking (can also be called by anonymous users)
 	r.POST("/api/analytics/track", handlers.TrackEvent)

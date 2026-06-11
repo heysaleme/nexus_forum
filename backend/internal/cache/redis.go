@@ -79,7 +79,9 @@ func (c *Client) AllowRate(ctx context.Context, key string, limit int, window ti
 	}
 	n, err := c.rdb.Incr(ctx, key).Result()
 	if err != nil {
-		return true
+		// Fail closed when Redis is configured but unavailable.
+		slog.Warn("redis rate limit error", "error", err, "key", key)
+		return false
 	}
 	if n == 1 {
 		_ = c.rdb.Expire(ctx, key, window).Err()

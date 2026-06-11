@@ -24,9 +24,10 @@ func setupPushTest(t *testing.T) (*Handlers, *gorm.DB) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(&model.User{}, &model.PushSubscription{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.PushSubscription{}, &model.FeatureFlag{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	_ = db.Create(&model.FeatureFlag{Key: "web_push", Enabled: true, Description: "push"}).Error
 	user := &model.User{
 		Username:     "pushuser",
 		Email:        "push@example.com",
@@ -37,6 +38,7 @@ func setupPushTest(t *testing.T) (*Handlers, *gorm.DB) {
 		t.Fatalf("seed user: %v", err)
 	}
 	pushRepo := repository.NewPushSubscriptionRepository(db)
+	flagSvc := service.NewFeatureFlagService(repository.NewFeatureFlagRepository(db))
 	pushSvc := service.NewPushService(pushRepo, &pushcfg.Config{
 		PublicKey:        "test-public",
 		PrivateKey:       "test-private",
@@ -47,7 +49,8 @@ func setupPushTest(t *testing.T) (*Handlers, *gorm.DB) {
 		KeysMatch:        true,
 	})
 	h := &Handlers{
-		PushService: pushSvc,
+		PushService:  pushSvc,
+		FeatureFlags: flagSvc,
 		UserService: service.NewUserService(
 			repository.NewUserRepository(db),
 			repository.NewFollowRepository(db),

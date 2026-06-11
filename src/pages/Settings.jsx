@@ -20,6 +20,7 @@ import {
     unsubscribeFromPush,
     getLocalPushSubscription,
 } from '@/lib/pushNotifications';
+import { useFeatureFlags } from '@/hooks/useFeatureFlags';
 
 const THEMES = [
     { id: 'default', label: 'По умолчанию', gradient: 'from-primary/30 to-accent/30' },
@@ -34,6 +35,7 @@ export default function Settings() {
     const { user, checkUserAuth } = useAuth();
     const { toast } = useToast();
     const navigate = useNavigate();
+    const featureFlags = useFeatureFlags();
     const [saving, setSaving] = useState(false);
     const [uploading, setUploading] = useState(false);
 
@@ -406,6 +408,7 @@ export default function Settings() {
                                 />
                             </div>
                         ))}
+                        {featureFlags.web_push && (
                         <div className="border-t border-border/40 pt-4 space-y-3">
                             <h4 className="text-sm font-bold flex items-center gap-1.5"><Bell className="w-4 h-4" />Push-уведомления</h4>
                             {!pushSupported ? (
@@ -464,6 +467,7 @@ export default function Settings() {
                                 </>
                             )}
                         </div>
+                        )}
                         <div className="border-t border-border/40 pt-4 space-y-3">
                             <h4 className="text-sm font-bold">Email-уведомления</h4>
                             <p className="text-xs text-muted-foreground">Требуется настройка SMTP на сервере (см. backend/.env.example)</p>

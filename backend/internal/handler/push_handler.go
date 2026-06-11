@@ -4,10 +4,14 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"nexus-forum-backend/internal/featureflags"
 	"nexus-forum-backend/internal/service"
 )
 
 func (h *Handlers) GetPushPublicKey(c *gin.Context) {
+	if !h.requireFeature(c, featureflags.WebPush) {
+		return
+	}
 	key := h.PushService.PublicKey()
 	if key == "" {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "push notifications not configured"})
@@ -17,6 +21,9 @@ func (h *Handlers) GetPushPublicKey(c *gin.Context) {
 }
 
 func (h *Handlers) SubscribePush(c *gin.Context) {
+	if !h.requireFeature(c, featureflags.WebPush) {
+		return
+	}
 	uid, ok := getUserID(c)
 	if !ok {
 		return
@@ -62,6 +69,9 @@ func (h *Handlers) GetPushStatus(c *gin.Context) {
 }
 
 func (h *Handlers) TestPush(c *gin.Context) {
+	if !h.requireFeature(c, featureflags.WebPush) {
+		return
+	}
 	uid, ok := getUserID(c)
 	if !ok {
 		return
@@ -89,6 +99,9 @@ func (h *Handlers) TestPush(c *gin.Context) {
 }
 
 func (h *Handlers) UnsubscribePush(c *gin.Context) {
+	if !h.requireFeature(c, featureflags.WebPush) {
+		return
+	}
 	uid, ok := getUserID(c)
 	if !ok {
 		return

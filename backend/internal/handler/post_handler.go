@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"nexus-forum-backend/internal/dto"
+	"nexus-forum-backend/internal/featureflags"
 	"nexus-forum-backend/internal/middleware"
 	"nexus-forum-backend/internal/model"
 
@@ -465,6 +466,9 @@ func (h *Handlers) VotePost(c *gin.Context) {
 }
 
 func (h *Handlers) CreateCrosspost(c *gin.Context) {
+	if !h.requireFeature(c, featureflags.Crosspost) {
+		return
+	}
 	uid, ok := getUserID(c)
 	if !ok {
 		return

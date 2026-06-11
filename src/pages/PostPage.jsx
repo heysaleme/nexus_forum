@@ -16,6 +16,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/components/ui/use-toast';
 import { validateFileSize, UPLOAD_LIMITS_MB, limitLabelForCategory } from '@/lib/validateFileSize';
 import { profilePath, sameUserId } from '@/lib/profileLink';
+import { useFeatureFlags } from '@/hooks/useFeatureFlags';
 
 function timeAgoShort(date) {
     if (!date) return '';
@@ -294,6 +295,7 @@ function CommentItem({ comment, depth = 0, currentUser, postId, onCommentAdded, 
 export default function PostPage() {
     const { id } = useParams();
     const { user, triggerAuthModal } = useAuth();
+    const featureFlags = useFeatureFlags();
 
     const navigate = useNavigate();
     const { toast } = useToast();
@@ -336,7 +338,7 @@ export default function PostPage() {
     };
 
     useEffect(() => {
-        if (!id || !user) return undefined;
+        if (!id || !user || !featureFlags.live_ws) return undefined;
         const token = localStorage.getItem('nexus_forum_session_token');
         if (!token) return undefined;
 
@@ -369,7 +371,7 @@ export default function PostPage() {
             ws.close();
             wsRef.current = null;
         };
-    }, [id, user]);
+    }, [id, user, featureFlags.live_ws]);
 
     const loadPost = async () => {
         setLoading(true);
@@ -913,7 +915,7 @@ export default function PostPage() {
                     <button onClick={() => { navigator.clipboard?.writeText(window.location.href); toast({ title: '🔗 Ссылка скопирована' }); }} className="h-8 px-3 text-muted-foreground hover:text-foreground">
                         <Share2 className="w-4 h-4" />
                     </button>
-                    {user && !post.is_crosspost && (
+                    {user && featureFlags.crosspost && !post.is_crosspost && (
                         <button onClick={openCrosspostModal} className="h-8 px-3 text-muted-foreground hover:text-primary flex items-center gap-1 text-xs font-semibold">
                             <Repeat2 className="w-4 h-4" />
                             <span className="hidden sm:inline">Кросспост</span>

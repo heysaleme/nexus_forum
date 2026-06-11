@@ -14,6 +14,7 @@ import { Switch } from '@/components/ui/switch';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { motion } from 'framer-motion';
 import { useToast } from '@/components/ui/use-toast';
+import { invalidateFeatureFlagsCache } from '@/hooks/useFeatureFlags';
 
 export default function AdminPanel() {
     const { user } = useAuth();
@@ -128,6 +129,7 @@ export default function AdminPanel() {
                 description: flag.description || '',
             });
             setFeatureFlags((prev) => prev.map((f) => (f.key === flag.key ? updated : f)));
+            invalidateFeatureFlagsCache();
             toast({ title: `Флаг «${flag.key}» ${updated.enabled ? 'включён' : 'выключен'}` });
         } catch (err) {
             toast({ title: err.message || 'Не удалось обновить флаг', variant: 'destructive' });

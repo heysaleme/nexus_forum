@@ -90,6 +90,8 @@ func (s *pushService) shouldSend(user *model.User, notifType string) bool {
 		return user.PushNotifyFollowers
 	case "message":
 		return user.PushNotifyMessages
+	case "post_vote":
+		return user.PushNotifyComments
 	default:
 		return user.PushNotifyModeration
 	}

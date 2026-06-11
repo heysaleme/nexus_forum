@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"nexus-forum-backend/internal/featureflags"
 	"nexus-forum-backend/internal/model"
 	"nexus-forum-backend/internal/service"
 
@@ -58,9 +59,13 @@ func (h *WSHub) runPostLeave(client *postWSClient) {
 	close(client.send)
 }
 
-func ServePostWS(hub *WSHub, authService service.AuthService) gin.HandlerFunc {
+func ServePostWS(hub *WSHub, authService service.AuthService, flags service.FeatureFlagService) gin.HandlerFunc {
 	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
 	return func(c *gin.Context) {
+		if flags != nil && !flags.IsEnabled(featureflags.LiveWS) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "live WebSocket updates are disabled"})
+			return
+		}
 		postID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid post id"})
@@ -139,6 +144,9 @@ func (c *postWSClient) postWritePump() {
 }
 
 func (h *Handlers) broadcastPostVote(postID uint, score int) {
+	if !h.liveWSAllowed() {
+		return
+	}
 	payload, _ := json.Marshal(map[string]interface{}{
 		"type": "vote",
 		"data": map[string]interface{}{"post_id": postID, "score": score},
@@ -147,6 +155,9 @@ func (h *Handlers) broadcastPostVote(postID uint, score int) {
 }
 
 func (h *Handlers) broadcastPostComment(postID uint, comment *model.Comment) {
+	if !h.liveWSAllowed() {
+		return
+	}
 	payload, _ := json.Marshal(map[string]interface{}{
 		"type": "comment",
 		"data": comment,
