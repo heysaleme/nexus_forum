@@ -12,13 +12,13 @@ import (
 
 // Config holds validated VAPID settings for webpush-go.
 type Config struct {
-	PublicKey         string
-	PrivateKey        string
-	Subscriber        string // value passed to webpush.Options.Subscriber (email or https URL, NOT mailto:)
-	JWTSubject        string // actual JWT "sub" claim after webpush normalization
-	ConfiguredPublic  string
-	DerivedPublicKey  string
-	KeysMatch         bool
+	PublicKey        string
+	PrivateKey       string
+	Subscriber       string // value passed to webpush.Options.Subscriber (email or https URL, NOT mailto:)
+	JWTSubject       string // actual JWT "sub" claim after webpush normalization
+	ConfiguredPublic string
+	DerivedPublicKey string
+	KeysMatch        bool
 }
 
 // NormalizeSubscriber returns the value for webpush.Options.Subscriber.
@@ -79,6 +79,7 @@ func DerivePublicKey(privateKeyB64 string) (string, error) {
 func ValidateConfig(publicKey, privateKey, subject string) (*Config, error) {
 	publicKey = strings.TrimSpace(publicKey)
 	privateKey = strings.TrimSpace(privateKey)
+
 	if publicKey == "" || privateKey == "" {
 		return nil, errors.New("VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are required")
 	}
@@ -88,7 +89,12 @@ func ValidateConfig(publicKey, privateKey, subject string) (*Config, error) {
 		return nil, fmt.Errorf("derive public key: %w", err)
 	}
 
+	// Base64URL keys may differ only by trailing "=" padding.
+	normalizedConfigured := strings.TrimRight(publicKey, "=")
+	normalizedDerived := strings.TrimRight(derived, "=")
+
 	subscriber := NormalizeSubscriber(subject)
+
 	cfg := &Config{
 		PublicKey:        publicKey,
 		PrivateKey:       privateKey,
@@ -96,11 +102,17 @@ func ValidateConfig(publicKey, privateKey, subject string) (*Config, error) {
 		JWTSubject:       JWTSubjectClaim(subscriber),
 		ConfiguredPublic: publicKey,
 		DerivedPublicKey: derived,
-		KeysMatch:        publicKey == derived,
+		KeysMatch:        normalizedConfigured == normalizedDerived,
 	}
+
 	if !cfg.KeysMatch {
-		return cfg, fmt.Errorf("VAPID public/private key mismatch: configured=%s derived=%s", publicKey, derived)
+		return cfg, fmt.Errorf(
+			"VAPID public/private key mismatch: configured=%s derived=%s",
+			publicKey,
+			derived,
+		)
 	}
+
 	return cfg, nil
 }
 

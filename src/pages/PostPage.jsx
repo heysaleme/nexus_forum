@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/components/ui/use-toast';
 import { validateFileSize, UPLOAD_LIMITS_MB, limitLabelForCategory } from '@/lib/validateFileSize';
+import { canonicalStorageUrl, storageReferenceFromUpload } from '@/lib/mediaUrl';
 import { profilePath, sameUserId } from '@/lib/profileLink';
 import { useFeatureFlags } from '@/hooks/useFeatureFlags';
 
@@ -495,8 +496,9 @@ export default function PostPage() {
         setEditUploading(true);
         try {
             validateFileSize(file, UPLOAD_LIMITS_MB['posts/images']);
-            const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'posts/images' });
-            setEditMediaUrls(prev => [...prev, file_url]);
+            const data = await nexusApi.integrations.Core.UploadFile({ file, category: 'posts/images' });
+            setEditMediaUrls(prev => [...prev, data.file_url]);
+            // refs are canonicalized on save via canonicalStorageUrl
             toast({ title: '✅ Изображение загружено' });
         } catch (err) {
             toast({ title: err.message || 'Не удалось загрузить изображение', variant: 'destructive' });
@@ -515,9 +517,14 @@ export default function PostPage() {
             const updated = await nexusApi.entities.Post.update(post.id, {
                 title: editTitle.trim(),
                 content: editContent.trim(),
-                media_urls: editMediaUrls,
+                media_urls: editMediaUrls.map(canonicalStorageUrl),
             });
-            setPost(prev => ({ ...prev, title: updated.title, content: updated.content, media_urls: editMediaUrls }));
+            setPost(prev => ({
+                ...prev,
+                title: updated.title,
+                content: updated.content,
+                media_urls: updated.media_urls || editMediaUrls,
+            }));
             setIsEditing(false);
             toast({ title: '✨ Публикация обновлена' });
         } catch (err) {

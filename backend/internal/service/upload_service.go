@@ -47,7 +47,9 @@ var categoryMaxBytes = map[string]int64{
 }
 
 type UploadService interface {
-	Upload(ctx context.Context, category, originalFilename string, reader io.Reader, size int64, sniff []byte) (url string, mimeType string, err error)
+	Upload(ctx context.Context, category, originalFilename string, reader io.Reader, size int64, sniff []byte) (storageURL string, mimeType string, err error)
+	AccessibleURL(ctx context.Context, reference string) (string, error)
+	ResolveMediaJSON(ctx context.Context, mediaJSON string) string
 	Backend() storage.Backend
 }
 
@@ -98,6 +100,22 @@ func (s *uploadService) Upload(ctx context.Context, category, originalFilename s
 		return "", "", err
 	}
 	return url, cleanMime, nil
+}
+
+func (s *uploadService) AccessibleURL(ctx context.Context, reference string) (string, error) {
+	reference = strings.TrimSpace(reference)
+	if reference == "" {
+		return "", nil
+	}
+	accessor, ok := s.store.(storage.ObjectStoreWithAccess)
+	if !ok {
+		return reference, nil
+	}
+	return accessor.AccessibleURL(ctx, reference)
+}
+
+func (s *uploadService) ResolveMediaJSON(ctx context.Context, mediaJSON string) string {
+	return storage.ResolveMediaJSON(ctx, s.store, mediaJSON)
 }
 
 func normalizeCategory(category string) string {

@@ -102,5 +102,6 @@ func (h *Handlers) Search(c *gin.Context) {
 		res.Posts = append(res.Posts, p)
 	}
 
+	h.enrichPosts(c.Request.Context(), res.Posts)
 	c.JSON(http.StatusOK, res)
 }

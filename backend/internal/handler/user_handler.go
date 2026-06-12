@@ -75,6 +75,7 @@ func (h *Handlers) GetUserByID(c *gin.Context) {
 	}
 
 	user.IsOnline = h.WSHub.IsUserOnline(user.ID)
+	h.enrichUser(c.Request.Context(), user)
 	includeMod := viewerCanSeeModerationFields(c, user.ID)
 	if includeMod {
 		c.JSON(http.StatusOK, userResponse(user, true))

@@ -55,6 +55,25 @@ func (s *LocalStore) Put(ctx context.Context, key string, reader io.Reader, _ in
 	return "/uploads/" + key, nil
 }
 
+// AccessibleURL maps local upload paths to the API public origin.
+func (s *LocalStore) AccessibleURL(ctx context.Context, reference string) (string, error) {
+	_ = ctx
+	reference = strings.TrimSpace(reference)
+	if reference == "" {
+		return "", nil
+	}
+	if strings.HasPrefix(reference, "http://") || strings.HasPrefix(reference, "https://") {
+		return reference, nil
+	}
+	if strings.HasPrefix(reference, "/uploads/") {
+		return s.publicURL + reference, nil
+	}
+	if strings.HasPrefix(reference, "uploads/") {
+		return s.publicURL + "/" + reference, nil
+	}
+	return reference, nil
+}
+
 // SafeObjectKey builds a unique object key under a category prefix.
 func SafeObjectKey(category, originalName string) string {
 	safeName := filepath.Base(originalName)

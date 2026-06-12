@@ -105,6 +105,7 @@ func (h *Handlers) CreatePost(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	h.enrichPost(c.Request.Context(), post)
 	c.JSON(http.StatusOK, post)
 }
 
@@ -163,6 +164,7 @@ func (h *Handlers) GetPostByID(c *gin.Context) {
 	}
 	_ = h.PostService.IncrementViews(post.ID)
 	post.Views++
+	h.enrichPost(c.Request.Context(), post)
 	c.JSON(http.StatusOK, post)
 }
 
@@ -238,6 +240,7 @@ func (h *Handlers) ListPosts(c *gin.Context) {
 	authors, _ := h.UserService.GetByIDs(collectAuthorIDs(posts))
 	posts = filterPostsByPrivacy(posts, authors, viewerID, authenticated, isGeneralFeed, h.UserService)
 	applyPostVotes(posts, viewerID, h.PostService)
+	h.enrichPosts(c.Request.Context(), posts)
 	c.JSON(http.StatusOK, posts)
 }
 
@@ -261,6 +264,7 @@ func (h *Handlers) ListFollowingPosts(c *gin.Context) {
 	}
 
 	applyPostVotes(posts, userID, h.PostService)
+	h.enrichPosts(c.Request.Context(), posts)
 	c.JSON(http.StatusOK, posts)
 }
 
@@ -284,6 +288,7 @@ func (h *Handlers) ListFollowingCommunityPosts(c *gin.Context) {
 	}
 
 	applyPostVotes(posts, userID, h.PostService)
+	h.enrichPosts(c.Request.Context(), posts)
 	c.JSON(http.StatusOK, posts)
 }
 
@@ -414,6 +419,7 @@ func (h *Handlers) UpdatePost(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	h.enrichPost(c.Request.Context(), post)
 	c.JSON(http.StatusOK, post)
 }
 
@@ -487,6 +493,7 @@ func (h *Handlers) CreateCrosspost(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	h.enrichPost(c.Request.Context(), post)
 	c.JSON(http.StatusOK, post)
 }
 

@@ -13,6 +13,7 @@ import { useToast } from '@/components/ui/use-toast';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import { useNavigate } from 'react-router-dom';
 import { validateFileSize, UPLOAD_LIMITS_MB, limitLabelForCategory } from '@/lib/validateFileSize';
+import { canonicalStorageUrl } from '@/lib/mediaUrl';
 import {
     isPushSupported,
     getNotificationPermission,
@@ -200,7 +201,11 @@ export default function Settings() {
     const handleSave = async () => {
         setSaving(true);
         try {
-            await nexusApi.auth.updateMe(profile);
+            await nexusApi.auth.updateMe({
+                ...profile,
+                avatar_url: canonicalStorageUrl(profile.avatar_url),
+                banner_url: canonicalStorageUrl(profile.banner_url),
+            });
             if (checkUserAuth) {
                 await checkUserAuth();
             }

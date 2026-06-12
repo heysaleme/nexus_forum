@@ -1,0 +1,37 @@
+package storage
+
+import (
+	"context"
+	"testing"
+)
+
+func TestMinIOStore_ObjectKeyFromReference(t *testing.T) {
+	s := &MinIOStore{
+		bucket:    "nexus-forum",
+		publicURL: "http://localhost:9000",
+	}
+	ref := "http://localhost:9000/nexus-forum/posts/videos/123_test.mp4"
+	key, ok := s.ObjectKeyFromReference(ref)
+	if !ok || key != "posts/videos/123_test.mp4" {
+		t.Fatalf("got key=%q ok=%v", key, ok)
+	}
+}
+
+func TestReferenceURL(t *testing.T) {
+	got := ReferenceURL("http://localhost:9000", "nexus-forum", "posts/images/a.gif")
+	want := "http://localhost:9000/nexus-forum/posts/images/a.gif"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestLocalStore_AccessibleURL(t *testing.T) {
+	s := &LocalStore{publicURL: "http://localhost:8080"}
+	got, err := s.AccessibleURL(context.Background(), "/uploads/posts/images/x.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "http://localhost:8080/uploads/posts/images/x.png" {
+		t.Fatalf("got %q", got)
+	}
+}

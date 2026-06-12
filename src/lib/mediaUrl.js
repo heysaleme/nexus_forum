@@ -10,7 +10,7 @@ export function mediaUrl(path) {
     return path.startsWith('/') ? `${origin}${path}` : `${origin}/${path}`;
 }
 
-/** Store relative upload paths in the database. */
+/** Store relative upload paths in the database (local backend). */
 export function toRelativeUploadUrl(url) {
     if (!url) return '';
     if (url.startsWith('/')) return url;
@@ -20,4 +20,25 @@ export function toRelativeUploadUrl(url) {
     } catch {
         return url;
     }
+}
+
+/** Strip presigned query params; keep stable object reference for MinIO/S3 and local paths. */
+export function canonicalStorageUrl(url) {
+    if (!url) return '';
+    if (url.startsWith('/')) return url;
+    try {
+        const parsed = new URL(url);
+        return `${parsed.origin}${parsed.pathname}`;
+    } catch {
+        return url;
+    }
+}
+
+/** Pick the canonical reference from an upload API response. */
+export function storageReferenceFromUpload(data) {
+    if (!data) return '';
+    if (data.storage_url) return data.storage_url;
+    if (data.file_url) return canonicalStorageUrl(data.file_url);
+    if (data.url) return canonicalStorageUrl(data.url);
+    return '';
 }

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -55,5 +57,49 @@ func (s *MinIOStore) Put(ctx context.Context, key string, reader io.Reader, size
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s/%s/%s", s.publicURL, s.bucket, key), nil
+	return ReferenceURL(s.publicURL, s.bucket, key), nil
+}
+
+// ReferenceURL builds the canonical stored reference for an object (not presigned).
+func ReferenceURL(publicURL, bucket, key string) string {
+	publicURL = strings.TrimRight(publicURL, "/")
+	key = strings.TrimPrefix(key, "/")
+	return fmt.Sprintf("%s/%s/%s", publicURL, bucket, key)
+}
+
+// ObjectKeyFromReference extracts the MinIO object key from a stored reference URL.
+func (s *MinIOStore) ObjectKeyFromReference(reference string) (string, bool) {
+	reference = strings.TrimSpace(reference)
+	if reference == "" {
+		return "", false
+	}
+
+	prefix := s.publicURL + "/" + s.bucket + "/"
+	if strings.HasPrefix(reference, prefix) {
+		return strings.TrimPrefix(reference, prefix), true
+	}
+
+	// Alternate host (e.g. minio:9000 internally vs localhost:9000 in browser).
+	if u, err := url.Parse(reference); err == nil && u.Path != "" {
+		path := strings.TrimPrefix(u.Path, "/")
+		if strings.HasPrefix(path, s.bucket+"/") {
+			return strings.TrimPrefix(path, s.bucket+"/"), true
+		}
+	}
+
+	return "", false
+}
+
+// AccessibleURL returns a time-limited presigned GET URL for private bucket objects.
+func (s *MinIOStore) AccessibleURL(ctx context.Context, reference string) (string, error) {
+	key, ok := s.ObjectKeyFromReference(reference)
+	if !ok {
+		// External URL (picsum, CDN, etc.) — return unchanged.
+		return reference, nil
+	}
+	presigned, err := s.client.PresignedGetObject(ctx, s.bucket, key, DefaultPresignExpiry, nil)
+	if err != nil {
+		return "", fmt.Errorf("presign object %q: %w", key, err)
+	}
+	return presigned.String(), nil
 }

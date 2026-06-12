@@ -558,7 +558,12 @@ const nexusApi = {
 
                 const data = await response.json();
                 const url = data.file_url || data.url;
-                return { file_url: url, mime_type: data.mime_type, filename: data.filename };
+                return {
+                    file_url: url,
+                    storage_url: data.storage_url || null,
+                    mime_type: data.mime_type,
+                    filename: data.filename,
+                };
             },
         },
     },

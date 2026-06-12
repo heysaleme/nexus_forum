@@ -13,6 +13,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { Type, Image, Link as LinkIcon, BarChart2, BookOpen, X, Plus, Upload, ArrowLeft, Video } from 'lucide-react';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import { validateFileSize, UPLOAD_LIMITS_MB, limitLabelForCategory } from '@/lib/validateFileSize';
+import { canonicalStorageUrl, storageReferenceFromUpload } from '@/lib/mediaUrl';
 
 const POST_TYPES = [
     { id: 'text', label: 'Текст', icon: Type },
@@ -42,7 +43,8 @@ export default function CreatePost() {
     const [pollOptions, setPollOptions] = useState(['', '']);
     const [status, setStatus] = useState('published');
     const [uploading, setUploading] = useState(false);
-    const [mediaUrls, setMediaUrls] = useState([]);
+    const [mediaRefs, setMediaRefs] = useState([]);
+    const [mediaPreviews, setMediaPreviews] = useState([]);
     const [submitting, setSubmitting] = useState(false);
     const [isNsfw, setIsNsfw] = useState(false);
     const [isSpoiler, setIsSpoiler] = useState(false);
@@ -70,7 +72,9 @@ export default function CreatePost() {
                 setType(draft.type || 'text');
                 setSelectedCommunity(String(draft.community_id || ''));
                 setTags(Array.isArray(draft.tags) ? draft.tags : []);
-                setMediaUrls(Array.isArray(draft.media_urls) ? draft.media_urls : []);
+                const draftMedia = Array.isArray(draft.media_urls) ? draft.media_urls : [];
+                setMediaRefs(draftMedia.map(canonicalStorageUrl));
+                setMediaPreviews(draftMedia);
                 setLinkUrl(draft.link_url || '');
                 setIsNsfw(!!draft.is_nsfw);
                 setIsSpoiler(!!draft.is_spoiler);
@@ -110,8 +114,9 @@ export default function CreatePost() {
         setUploading(true);
         try {
             validateFileSize(file, UPLOAD_LIMITS_MB['posts/images']);
-            const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'posts/images' });
-            setMediaUrls(prev => [...prev, file_url]);
+            const data = await nexusApi.integrations.Core.UploadFile({ file, category: 'posts/images' });
+            setMediaRefs(prev => [...prev, storageReferenceFromUpload(data)]);
+            setMediaPreviews(prev => [...prev, data.file_url]);
             toast({ title: '✅ Изображение загружено' });
         } catch (err) {
             toast({ title: err.message || 'Не удалось загрузить изображение', variant: 'destructive' });
@@ -131,8 +136,10 @@ export default function CreatePost() {
         setUploading(true);
         try {
             validateFileSize(file, UPLOAD_LIMITS_MB['posts/videos']);
-            const { file_url } = await nexusApi.integrations.Core.UploadFile({ file, category: 'posts/videos' });
-            setMediaUrls([file_url]);
+            const data = await nexusApi.integrations.Core.UploadFile({ file, category: 'posts/videos' });
+            const ref = storageReferenceFromUpload(data);
+            setMediaRefs([ref]);
+            setMediaPreviews([data.file_url]);
             toast({ title: '✅ Видео загружено' });
         } catch (err) {
             toast({ title: err.message || 'Не удалось загрузить видео', variant: 'destructive' });
@@ -146,7 +153,7 @@ export default function CreatePost() {
         if (!title.trim()) { toast({ title: 'Введите заголовок', variant: 'destructive' }); return; }
         if (!selectedCommunity) { toast({ title: 'Выберите сообщество', variant: 'destructive' }); return; }
 
-        if (type === 'video' && mediaUrls.length === 0) {
+        if (type === 'video' && mediaRefs.length === 0) {
             toast({ title: 'Загрузите видео', variant: 'destructive' });
             return;
         }
@@ -160,7 +167,7 @@ export default function CreatePost() {
                 content: content.trim(),
                 type,
                 community_id: Number(selectedCommunity),
-                media_urls: mediaUrls,
+                media_urls: mediaRefs,
                 link_url: type === 'link' ? linkUrl : undefined,
                 tags,
                 status: finalStatus,
@@ -304,9 +311,9 @@ export default function CreatePost() {
                                 )}
                                 <input type="file" accept="video/*" className="hidden" onChange={handleVideoUpload} />
                             </label>
-                            {mediaUrls.length > 0 && (
+                            {mediaPreviews.length > 0 && (
                                 <div className="mt-2 rounded-xl overflow-hidden">
-                                    <video src={mediaUrls[0]} controls className="w-full max-h-64 bg-black" />
+                                    <video src={mediaPreviews[0]} controls className="w-full max-h-64 bg-black" />
                                 </div>
                             )}
                         </div>
@@ -335,13 +342,16 @@ export default function CreatePost() {
                                 )}
                                 <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
                             </label>
-                            {mediaUrls.length > 0 && (
+                            {mediaPreviews.length > 0 && (
                                 <div className="flex gap-2 flex-wrap mt-2">
-                                    {mediaUrls.map((url, i) => (
+                                    {mediaPreviews.map((url, i) => (
                                         <div key={i} className="relative">
                                             <img src={url} className="w-20 h-20 rounded-xl object-cover" alt="" />
                                             <button
-                                                onClick={() => setMediaUrls(prev => prev.filter((_, j) => j !== i))}
+                                                onClick={() => {
+                                                    setMediaRefs(prev => prev.filter((_, j) => j !== i));
+                                                    setMediaPreviews(prev => prev.filter((_, j) => j !== i));
+                                                }}
                                                 className="absolute -top-1 -right-1 w-5 h-5 bg-destructive rounded-full flex items-center justify-center"
                                             >
                                                 <X className="w-3 h-3 text-white" />

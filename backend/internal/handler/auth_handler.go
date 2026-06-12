@@ -144,6 +144,7 @@ func (h *Handlers) GetMe(c *gin.Context) {
 	}
 
 	user.IsOnline = h.WSHub.IsUserOnline(user.ID)
+	h.enrichUser(c.Request.Context(), user)
 	c.JSON(http.StatusOK, user)
 }
 
@@ -232,6 +233,7 @@ func (h *Handlers) UpdateMe(c *gin.Context) {
 		return
 	}
 
+	h.enrichUser(c.Request.Context(), user)
 	c.JSON(http.StatusOK, user)
 }
 

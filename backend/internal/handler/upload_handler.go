@@ -50,17 +50,23 @@ func (h *Handlers) UploadFile(c *gin.Context) {
 		}
 	}
 	reader := bytes.NewReader(fullData)
-	url, mimeType, err := h.UploadService.Upload(c.Request.Context(), category, file.Filename, reader, int64(len(fullData)), fullData[:min(512, len(fullData))])
+	storageURL, mimeType, err := h.UploadService.Upload(c.Request.Context(), category, file.Filename, reader, int64(len(fullData)), fullData[:min(512, len(fullData))])
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	accessURL, err := h.UploadService.AccessibleURL(c.Request.Context(), storageURL)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to prepare media URL"})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"url":       url,
-		"file_url":  url,
-		"mime_type": mimeType,
-		"filename":  file.Filename,
-		"backend":   string(h.UploadService.Backend()),
+		"url":         accessURL,
+		"file_url":    accessURL,
+		"storage_url": storageURL,
+		"mime_type":   mimeType,
+		"filename":    file.Filename,
+		"backend":     string(h.UploadService.Backend()),
 	})
 }
