@@ -32,7 +32,7 @@ func ResolveMediaJSON(ctx context.Context, store ObjectStore, mediaJSON string) 
 	}
 	out := make([]string, 0, len(refs))
 	for _, ref := range refs {
-		ref = strings.TrimSpace(ref)
+		ref = CanonicalMediaReference(ref)
 		if ref == "" {
 			continue
 		}

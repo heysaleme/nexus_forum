@@ -7,22 +7,24 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
-	"time"
+
+	"nexus-forum-backend/internal/resilience"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	"nexus-forum-backend/internal/resilience"
 )
 
 type MinIOStore struct {
-	client    *minio.Client
-	bucket    string
-	publicURL string
+	client        *minio.Client // internal endpoint (e.g. minio:9000 inside Docker)
+	presignClient *minio.Client // browser-reachable host from MINIO_PUBLIC_URL
+	bucket        string
+	publicURL     string
 }
 
 func NewMinIOStore(endpoint, accessKey, secretKey, bucket, publicURL string, useSSL bool) (*MinIOStore, error) {
+	creds := credentials.NewStaticV4(accessKey, secretKey, "")
 	client, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
+		Creds:  creds,
 		Secure: useSSL,
 	})
 	if err != nil {
@@ -42,7 +44,37 @@ func NewMinIOStore(endpoint, accessKey, secretKey, bucket, publicURL string, use
 	}
 
 	publicURL = strings.TrimRight(publicURL, "/")
-	return &MinIOStore{client: client, bucket: bucket, publicURL: publicURL}, nil
+	presignClient := client
+	if pubHost, pubSSL, ok := publicEndpointFromURL(publicURL); ok && pubHost != endpoint {
+		// Region must be set so presigning does not dial the public host from inside Docker
+		// (bucket location lookup). MinIO defaults to us-east-1.
+		pc, perr := minio.New(pubHost, &minio.Options{
+			Creds:  creds,
+			Secure: pubSSL,
+			Region: "us-east-1",
+		})
+		if perr != nil {
+			return nil, fmt.Errorf("minio presign client (%s): %w", pubHost, perr)
+		}
+		presignClient = pc
+		slog.Info("minio presign host configured", "internal", endpoint, "public", pubHost)
+	}
+
+	return &MinIOStore{
+		client:        client,
+		presignClient: presignClient,
+		bucket:        bucket,
+		publicURL:     publicURL,
+	}, nil
+}
+
+// publicEndpointFromURL extracts host:port and TLS flag from MINIO_PUBLIC_URL.
+func publicEndpointFromURL(publicURL string) (host string, secure bool, ok bool) {
+	u, err := url.Parse(publicURL)
+	if err != nil || u.Host == "" {
+		return "", false, false
+	}
+	return u.Host, u.Scheme == "https", true
 }
 
 func (s *MinIOStore) Backend() Backend { return BackendMinIO }
@@ -69,22 +101,26 @@ func ReferenceURL(publicURL, bucket, key string) string {
 
 // ObjectKeyFromReference extracts the MinIO object key from a stored reference URL.
 func (s *MinIOStore) ObjectKeyFromReference(reference string) (string, bool) {
-	reference = strings.TrimSpace(reference)
+	reference = CanonicalMediaReference(reference)
 	if reference == "" {
 		return "", false
 	}
 
-	prefix := s.publicURL + "/" + s.bucket + "/"
-	if strings.HasPrefix(reference, prefix) {
-		return strings.TrimPrefix(reference, prefix), true
-	}
-
-	// Alternate host (e.g. minio:9000 internally vs localhost:9000 in browser).
 	if u, err := url.Parse(reference); err == nil && u.Path != "" {
 		path := strings.TrimPrefix(u.Path, "/")
 		if strings.HasPrefix(path, s.bucket+"/") {
-			return strings.TrimPrefix(path, s.bucket+"/"), true
+			key := strings.TrimPrefix(path, s.bucket+"/")
+			return key, key != ""
 		}
+	}
+
+	prefix := s.publicURL + "/" + s.bucket + "/"
+	if strings.HasPrefix(reference, prefix) {
+		key := strings.TrimPrefix(reference, prefix)
+		if i := strings.IndexAny(key, "?#"); i >= 0 {
+			key = key[:i]
+		}
+		return key, key != ""
 	}
 
 	return "", false
@@ -97,7 +133,7 @@ func (s *MinIOStore) AccessibleURL(ctx context.Context, reference string) (strin
 		// External URL (picsum, CDN, etc.) — return unchanged.
 		return reference, nil
 	}
-	presigned, err := s.client.PresignedGetObject(ctx, s.bucket, key, DefaultPresignExpiry, nil)
+	presigned, err := s.presignClient.PresignedGetObject(ctx, s.bucket, key, DefaultPresignExpiry, nil)
 	if err != nil {
 		return "", fmt.Errorf("presign object %q: %w", key, err)
 	}

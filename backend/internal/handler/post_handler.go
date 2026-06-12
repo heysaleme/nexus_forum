@@ -61,7 +61,7 @@ func (h *Handlers) CreatePost(c *gin.Context) {
 			isShadowContent = true
 		}
 	}
-	mediaBytes, _ := json.Marshal(req.MediaUrls)
+	mediaBytes, _ := json.Marshal(canonicalizeMediaSlice(req.MediaUrls))
 	tagsBytes, _ := json.Marshal(req.Tags)
 	var pollOptionsStr string
 	if req.PollOptions != nil {
@@ -337,7 +337,13 @@ func (h *Handlers) UpdatePost(c *gin.Context) {
 		}
 		if v, ok := req["media_urls"]; ok {
 			if media, ok := v.([]interface{}); ok {
-				mediaBytes, _ := json.Marshal(media)
+				refs := make([]string, 0, len(media))
+				for _, item := range media {
+					if s, ok := item.(string); ok {
+						refs = append(refs, s)
+					}
+				}
+				mediaBytes, _ := json.Marshal(canonicalizeMediaSlice(refs))
 				post.MediaUrls = string(mediaBytes)
 			}
 		}
