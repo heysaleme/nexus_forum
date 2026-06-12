@@ -50,6 +50,7 @@ export default function AdminPanel() {
                 nexusApi.analytics.getReportReasons(),
                 nexusApi.analytics.getRetention(),
                 nexusApi.analytics.getEngagement(),
+                nexusApi.featureFlags.list(),
             ]);
             const pick = (i, fallback) => (results[i].status === 'fulfilled' ? results[i].value : fallback);
             setUsers(pick(0, []));
@@ -60,6 +61,7 @@ export default function AdminPanel() {
             setReportReasons(pick(5, []));
             setRetention(pick(6, { d1: 0, d7: 0, d30: 0 }) || { d1: 0, d7: 0, d30: 0 });
             setEngagement(pick(7, null));
+            setFeatureFlags(Array.isArray(pick(8, [])) ? pick(8, []) : []);
             const failed = results.find((r) => r.status === 'rejected');
             if (failed) {
                 toast({ title: failed.reason?.message || 'Часть данных панели не загрузилась', variant: 'destructive' });
@@ -261,7 +263,14 @@ export default function AdminPanel() {
                 </div>
             </div>
 
-            <Tabs defaultValue="stats">
+            <Tabs
+                defaultValue="stats"
+                onValueChange={(value) => {
+                    if (value === 'flags' && featureFlags.length === 0 && !flagsLoading) {
+                        loadFeatureFlags();
+                    }
+                }}
+            >
                 <TabsList className="bg-muted/50 rounded-xl p-1 mb-4 w-full flex flex-nowrap overflow-x-auto scrollbar-hide justify-start">
                     <TabsTrigger value="stats" className="rounded-lg text-xs gap-1.5 flex-shrink-0"><BarChart2 className="w-3.5 h-3.5" />Статистика</TabsTrigger>
                     <TabsTrigger value="users" className="rounded-lg text-xs gap-1.5 flex-shrink-0"><Users className="w-3.5 h-3.5" />Пользователи</TabsTrigger>
@@ -271,7 +280,7 @@ export default function AdminPanel() {
                         Жалобы
                         {stats.pendingReports > 0 && <span className="absolute -top-1 -right-1 w-3 h-3 bg-destructive rounded-full text-[8px] text-white flex items-center justify-center">{stats.pendingReports}</span>}
                     </TabsTrigger>
-                    <TabsTrigger value="flags" className="rounded-lg text-xs gap-1.5 flex-shrink-0" onClick={() => { if (featureFlags.length === 0) loadFeatureFlags(); }}>
+                    <TabsTrigger value="flags" className="rounded-lg text-xs gap-1.5 flex-shrink-0">
                         <ToggleLeft className="w-3.5 h-3.5" />Флаги
                     </TabsTrigger>
                 </TabsList>
